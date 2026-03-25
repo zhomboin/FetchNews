@@ -1,4 +1,4 @@
-﻿# FetchNews 系统架构
+# FetchNews 系统架构
 
 ## 1. 目标与范围
 

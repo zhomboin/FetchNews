@@ -1,4 +1,4 @@
-﻿# FetchNews 项目计划目录
+# FetchNews 项目计划目录
 
 本目录用于承载 `FetchNews` 的完整项目计划文档体系。
 

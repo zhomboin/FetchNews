@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  api:
+    image: python:3.11-slim
+    working_dir: /app
+    command: sh -c "pip install -e .[dev] && uvicorn fetchnews.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+
+  worker:
+    image: python:3.11-slim
+    working_dir: /app
+    command: sh -c "pip install -e .[dev] && celery -A fetchnews.tasks.worker.celery_app worker --loglevel=info"
+    volumes:
+      - ./:/app
+    environment:
+      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+
+  beat:
+    image: python:3.11-slim
+    working_dir: /app
+    command: sh -c "pip install -e .[dev] && celery -A fetchnews.tasks.worker.celery_app beat --loglevel=info"
+    volumes:
+      - ./:/app
+    environment:
+      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+
+  web:
+    image: node:20-alpine
+    working_dir: /app/web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/app
+    environment:
+      VITE_API_BASE: http://localhost:8000
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

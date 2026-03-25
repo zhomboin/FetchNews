@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## 项目目标
 
@@ -73,6 +73,12 @@ web/
 - 白名单优先，不做无限制全网抓取。
 - 前端只消费 API，不直接承载业务真相。
 
+## 文件编码约定
+
+- 仓库内所有文本文件统一使用 `UTF-8`，不带 BOM。
+- 统一使用 `LF` 作为换行符。
+- 新增或修改文档、Python、前端源码、JSON、YAML、TOML 时，必须保持该编码约定。
+- 优先遵循 [`.editorconfig`](/D:/Code/Project/FetchNews/.editorconfig) 和 [`.gitattributes`](/D:/Code/Project/FetchNews/.gitattributes) 中的规则。
 ## 测试与验证
 
 - 新增行为优先补测试。

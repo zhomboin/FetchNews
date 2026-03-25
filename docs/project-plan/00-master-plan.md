@@ -1,4 +1,4 @@
-﻿# FetchNews 总体项目计划
+# FetchNews 总体项目计划
 
 ## 1. 总体目标
 

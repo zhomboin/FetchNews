@@ -1,4 +1,4 @@
-﻿# FetchNews 实施路线
+# FetchNews 实施路线
 
 ## Phase 0: 仓库基础
 

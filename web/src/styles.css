@@ -1,0 +1,122 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  background: #f4f1ea;
+  color: #1d1d1f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(210, 178, 122, 0.28), transparent 28%),
+    linear-gradient(180deg, #f4f1ea 0%, #ece6da 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.frame {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.nav {
+  padding: 28px 20px;
+  border-right: 1px solid rgba(29, 29, 31, 0.08);
+  background: rgba(255, 252, 246, 0.8);
+  backdrop-filter: blur(16px);
+}
+
+.nav nav {
+  display: grid;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.nav a {
+  color: #4f463a;
+  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.nav a.active {
+  background: #1d1d1f;
+  color: #f8f4ee;
+}
+
+.brand {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.brand-copy {
+  margin: 0;
+  color: #6f6457;
+}
+
+.shell {
+  padding: 56px;
+}
+
+.hero {
+  max-width: 760px;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #8a6c45;
+  font-size: 0.75rem;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 4vw, 4.2rem);
+  line-height: 0.95;
+}
+
+.lede {
+  margin-top: 18px;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: #544b40;
+}
+
+.status-card {
+  margin-top: 28px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(29, 29, 31, 0.08);
+}
+
+@media (max-width: 800px) {
+  .frame {
+    grid-template-columns: 1fr;
+  }
+
+  .nav {
+    border-right: 0;
+    border-bottom: 1px solid rgba(29, 29, 31, 0.08);
+  }
+
+  .nav nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell {
+    padding: 28px 20px 40px;
+  }
+}

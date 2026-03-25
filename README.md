@@ -1,4 +1,4 @@
-﻿# FetchNews
+# FetchNews
 
 一个面向中文 AI 从业者的资讯聚合、内容生成与多平台分发工作流。
 
@@ -53,6 +53,12 @@
 - 项目计划目录：[docs/project-plan/README.md](/D:/Code/Project/FetchNews/docs/project-plan/README.md)
 - 总体项目计划：[docs/project-plan/00-master-plan.md](/D:/Code/Project/FetchNews/docs/project-plan/00-master-plan.md)
 
+## 文件编码约定
+
+- 所有文本文件统一使用 `UTF-8`，不带 BOM
+- 统一使用 `LF` 作为换行符
+- 仓库通过 [`.editorconfig`](/D:/Code/Project/FetchNews/.editorconfig) 和 [`.gitattributes`](/D:/Code/Project/FetchNews/.gitattributes) 约束编码与换行
+- 新增脚本、配置、前端源码和文档时，都必须遵守该约定
 ## 本地开发
 
 安装依赖：

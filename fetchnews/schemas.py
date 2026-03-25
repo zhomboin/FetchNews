@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from pydantic import BaseModel, Field
+
+
+class SourceSpec(BaseModel):
+    slug: str
+    label: str
+    platform: str
+    priority: str
+    kind: str
+
+
+class RawIngestedItem(BaseModel):
+    source_slug: str
+    external_id: str
+    title: str
+    url: str
+    author: str | None = None
+    published_at: datetime
+    content: str
+    metadata: dict = Field(default_factory=dict)
+
+
+class NormalizedItem(BaseModel):
+    source_slug: str
+    external_id: str
+    canonical_url: str
+    title: str
+    normalized_title: str
+    author: str | None = None
+    published_at: datetime
+    summary: str
+    content: str
+    metadata: dict = Field(default_factory=dict)
+
+
+class StoryCandidate(BaseModel):
+    story_key: str
+    cluster_title: str
+    summary: str
+    highlights: list[str]
+    source_links: list[str]
+    tags: list[str]
+    risk_flags: list[str]
+    score: float
+    item_count: int
+    first_seen_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_seen_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ArticleDraftPayload(BaseModel):
+    id: int | None = None
+    target_date: date
+    title: str
+    summary: str
+    body: str
+    story_keys: list[str]
+
+
+class DailyDigest(BaseModel):
+    article: ArticleDraftPayload
+    posts: dict[str, str]
+
+
+class StoryCreatePayload(BaseModel):
+    story_key: str
+    cluster_title: str
+    summary: str
+    highlights: list[str]
+    source_links: list[str]
+    tags: list[str]
+    risk_flags: list[str]
+    score: float
+    item_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class StoryResponse(StoryCreatePayload):
+    id: int
+    status: str
+
+
+class PublishRequest(BaseModel):
+    platforms: list[str]
+    scheduled_for: datetime
+
+
+class PublishJobResponse(BaseModel):
+    id: int
+    article_id: int
+    platform: str
+    scheduled_for: datetime
+    status: str
+    retries: int
+    external_id: str | None = None
