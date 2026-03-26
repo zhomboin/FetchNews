@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,24 +10,45 @@ from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
-from fetchnews.models import ArticleDraft, ArticleStatus, PublishJob, PublishJobStatus, Story, StoryStatus
+from fetchnews.models import (
+    ArticleDraft,
+    ArticleStatus,
+    IngestRun,
+    PublishJob,
+    PublishJobStatus,
+    Story,
+    StoryStatus,
+)
 from fetchnews.pipeline.generation import generate_daily_digest
-from fetchnews.schemas import PublishJobResponse, PublishRequest, StoryCandidate, StoryCreatePayload, StoryResponse
+from fetchnews.schemas import (
+    IngestRunRequest,
+    IngestRunResponse,
+    PublishJobResponse,
+    PublishRequest,
+    StoryCandidate,
+    StoryCreatePayload,
+    StoryResponse,
+)
 from fetchnews.settings import Settings
+from fetchnews.sources.connectors import build_default_connector_registry
+from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
 
 class AppState:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, connector_overrides: dict[str, Any] | None = None) -> None:
         self.settings = settings
         self.engine, self.session_factory = create_engine_and_factory(settings.database_url)
         if settings.environment == "test":
             Base.metadata.drop_all(bind=self.engine)
         init_database(self.engine)
+        self.connector_registry = build_default_connector_registry()
+        if connector_overrides:
+            self.connector_registry.update(connector_overrides)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, connector_overrides: dict[str, Any] | None = None) -> FastAPI:
     resolved_settings = settings or Settings()
-    state = AppState(resolved_settings)
+    state = AppState(resolved_settings, connector_overrides=connector_overrides)
     app = FastAPI(title=resolved_settings.app_name)
     app.state.container = state
     app.add_middleware(
@@ -51,6 +73,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         articles = db.scalar(select(func.count()).select_from(ArticleDraft)) or 0
         jobs = db.scalar(select(func.count()).select_from(PublishJob)) or 0
         return {"stories": stories, "articles": articles, "publish_jobs": jobs}
+
+    @app.post("/ingest/run", response_model=IngestRunResponse)
+    def run_ingestion(payload: IngestRunRequest, db: Session = Depends(get_db)) -> IngestRunResponse:
+        try:
+            run = execute_ingest_run(
+                db,
+                source_slugs=payload.source_slugs,
+                connector_registry=state.connector_registry,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ingest_run_to_response(run)
+
+    @app.get("/ingest/runs", response_model=list[IngestRunResponse])
+    def list_ingest_runs(db: Session = Depends(get_db)) -> list[IngestRunResponse]:
+        runs = db.scalars(select(IngestRun).order_by(IngestRun.id.desc())).all()
+        return [ingest_run_to_response(run) for run in runs]
+
+    @app.get("/ingest/runs/{run_id}", response_model=IngestRunResponse)
+    def get_ingest_run(run_id: int, db: Session = Depends(get_db)) -> IngestRunResponse:
+        run = db.get(IngestRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Ingest run not found")
+        return ingest_run_to_response(run)
 
     @app.post("/stories", response_model=StoryResponse, status_code=201)
     def create_story(payload: StoryCreatePayload, db: Session = Depends(get_db)) -> StoryResponse:

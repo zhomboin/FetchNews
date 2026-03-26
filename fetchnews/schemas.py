@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -10,6 +11,8 @@ class SourceSpec(BaseModel):
     platform: str
     priority: str
     kind: str
+    enabled: bool = True
+    config: dict = Field(default_factory=dict)
 
 
 class RawIngestedItem(BaseModel):
@@ -81,6 +84,28 @@ class StoryCreatePayload(BaseModel):
 class StoryResponse(StoryCreatePayload):
     id: int
     status: str
+
+
+class IngestRunRequest(BaseModel):
+    source_slugs: list[str] | None = None
+
+
+class IngestRunError(BaseModel):
+    source_slug: str
+    message: str
+
+
+class IngestRunResponse(BaseModel):
+    id: int
+    source_slugs: list[str]
+    status: str
+    sources_total: int
+    sources_succeeded: int
+    sources_failed: int
+    items_ingested: int
+    errors: list[IngestRunError] = Field(default_factory=list)
+    started_at: datetime
+    finished_at: datetime | None = None
 
 
 class PublishRequest(BaseModel):
