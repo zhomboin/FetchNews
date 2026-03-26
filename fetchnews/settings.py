@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8000)
     database_url: str = Field(default="sqlite:///./fetchnews.db")
     redis_url: str = Field(default="redis://localhost:6379/0")
+    ingest_interval_seconds: int = Field(default=1800)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     model_config = SettingsConfigDict(

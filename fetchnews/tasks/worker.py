@@ -12,7 +12,12 @@ from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
 settings = Settings()
 celery_app = Celery("fetchnews", broker=settings.redis_url, backend=settings.redis_url)
-celery_app.conf.beat_schedule = {}
+celery_app.conf.beat_schedule = {
+    "ingest-default-sources": {
+        "task": "fetchnews.ingest.run",
+        "schedule": settings.ingest_interval_seconds,
+    }
+}
 
 
 def run_ingestion_job(

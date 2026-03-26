@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
+import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { PreviewDashboard } from "./features/preview/preview-dashboard";
 import { fetchHealth } from "./lib/api";
 import "./styles.css";
@@ -11,6 +12,7 @@ const queryClient = new QueryClient();
 
 const sections = [
   { path: "/", label: "总览" },
+  { path: "/ingestion", label: "采集运行" },
   { path: "/stories", label: "审核队列" },
   { path: "/articles", label: "草稿中心" },
   { path: "/publishing", label: "发布与日志" },
@@ -42,7 +44,7 @@ function Shell() {
 
         <nav className="rail-nav">
           {sections.map((section) => (
-            <NavLink key={section.path} to={section.path}>
+            <NavLink key={section.path} to={section.path} end={section.path === "/"}>
               {section.label}
             </NavLink>
           ))}
@@ -57,6 +59,11 @@ function Shell() {
 
       <main className="console-main">
         <Routes>
+          <Route path="/" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/ingestion" element={<IngestionRunsPage health={health} />} />
+          <Route path="/stories" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/articles" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/publishing" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="*" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
         </Routes>
       </main>

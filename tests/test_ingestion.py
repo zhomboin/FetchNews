@@ -128,3 +128,10 @@ def test_worker_can_run_ingestion_job_with_overrides() -> None:
     assert result["status"] == IngestRunStatus.COMPLETED
     assert result["sources_total"] == 1
     assert result["items_ingested"] == 1
+
+def test_worker_registers_periodic_ingestion_schedule() -> None:
+    from fetchnews.tasks.worker import celery_app
+
+    schedule = celery_app.conf.beat_schedule
+    assert "ingest-default-sources" in schedule
+    assert schedule["ingest-default-sources"]["task"] == "fetchnews.ingest.run"
