@@ -30,6 +30,7 @@ from fetchnews.schemas import (
     StoryResponse,
 )
 from fetchnews.settings import Settings
+from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.connectors import build_default_connector_registry
 from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
@@ -73,6 +74,10 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
         articles = db.scalar(select(func.count()).select_from(ArticleDraft)) or 0
         jobs = db.scalar(select(func.count()).select_from(PublishJob)) or 0
         return {"stories": stories, "articles": articles, "publish_jobs": jobs}
+
+    @app.get("/sources")
+    def list_sources() -> list[dict[str, object]]:
+        return [spec.model_dump() for spec in get_source_specs()]
 
     @app.post("/ingest/run", response_model=IngestRunResponse)
     def run_ingestion(payload: IngestRunRequest, db: Session = Depends(get_db)) -> IngestRunResponse:

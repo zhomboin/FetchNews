@@ -135,3 +135,20 @@ def test_worker_registers_periodic_ingestion_schedule() -> None:
     schedule = celery_app.conf.beat_schedule
     assert "ingest-default-sources" in schedule
     assert schedule["ingest-default-sources"]["task"] == "fetchnews.ingest.run"
+
+def test_source_catalog_endpoint_returns_enabled_specs() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_source_catalog.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/sources")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload[0]["priority"] == "P0"
+        assert {item["slug"] for item in payload}.issuperset({"github-trending", "openai-blog", "x-allowlist"})

@@ -914,3 +914,110 @@ a {
     padding: 16px;
   }
 }
+.trigger-panel {
+  margin-top: 18px;
+}
+
+.trigger-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.source-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.selector-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(64, 52, 37, 0.1);
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.selector-chip:hover {
+  color: var(--text);
+  border-color: rgba(185, 147, 94, 0.28);
+}
+
+.selector-chip.selected {
+  color: var(--text);
+  border-color: rgba(185, 147, 94, 0.34);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(241, 232, 219, 0.76));
+}
+
+.selector-chip span,
+.selector-chip strong,
+.action-status span,
+.action-status strong {
+  margin: 0;
+}
+
+.selector-chip strong {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(185, 147, 94, 0.12);
+  color: #8e7047;
+  font-size: 0.72rem;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.button-primary,
+.button-secondary {
+  border: 1px solid rgba(64, 52, 37, 0.12);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.button-primary:disabled,
+.button-secondary:disabled,
+.selector-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.button-secondary {
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--text);
+}
+
+.button-secondary:hover:not(:disabled) {
+  border-color: rgba(185, 147, 94, 0.24);
+}
+
+.button-primary {
+  background: linear-gradient(135deg, rgba(185, 147, 94, 0.92), rgba(162, 127, 82, 0.92));
+  color: #fffdf9;
+  border-color: rgba(160, 122, 73, 0.4);
+}
+
+.button-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.action-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.action-status strong {
+  color: var(--text);
+}

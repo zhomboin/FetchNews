@@ -5,6 +5,16 @@ export type HealthResponse = {
   service: string;
 };
 
+export type SourceSpec = {
+  slug: string;
+  label: string;
+  platform: string;
+  priority: string;
+  kind: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+};
+
 export type IngestRunError = {
   source_slug: string;
   message: string;
@@ -23,8 +33,12 @@ export type IngestRunRecord = {
   finished_at: string | null;
 };
 
-async function requestJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
+export type IngestRunRequest = {
+  source_slugs?: string[];
+};
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -35,6 +49,20 @@ export function fetchHealth(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/healthz");
 }
 
+export function fetchSourceSpecs(): Promise<SourceSpec[]> {
+  return requestJson<SourceSpec[]>("/sources");
+}
+
 export function fetchIngestRuns(): Promise<IngestRunRecord[]> {
   return requestJson<IngestRunRecord[]>("/ingest/runs");
+}
+
+export function triggerIngestRun(payload: IngestRunRequest): Promise<IngestRunRecord> {
+  return requestJson<IngestRunRecord>("/ingest/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 }
