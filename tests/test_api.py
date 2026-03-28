@@ -4,8 +4,42 @@ from fastapi.testclient import TestClient
 
 from fetchnews.main import create_app
 from fetchnews.models import StoryStatus
-from fetchnews.schemas import StoryCreatePayload
+from fetchnews.schemas import RawIngestedItem, StoryCreatePayload
 from fetchnews.settings import Settings
+
+
+class StubConnector:
+    def __init__(self, items: list[RawIngestedItem] | None = None) -> None:
+        self.items = items or []
+
+    def fetch(self, _source) -> list[RawIngestedItem]:
+        return self.items
+
+
+def _github_item() -> RawIngestedItem:
+    return RawIngestedItem(
+        source_slug="github-trending",
+        external_id="repo-1",
+        title="OpenAI releases agent benchmark toolkit",
+        url="https://github.com/openai/agent-bench",
+        author="openai",
+        published_at=datetime(2026, 3, 26, 8, 0, tzinfo=UTC),
+        content="A new agent benchmark toolkit reached trending.",
+        metadata={"stars": 1200},
+    )
+
+
+def _openai_blog_item() -> RawIngestedItem:
+    return RawIngestedItem(
+        source_slug="openai-blog",
+        external_id="blog-1",
+        title="OpenAI releases an agent benchmark toolkit",
+        url="https://openai.com/blog/agent-benchmark-toolkit?utm_source=x",
+        author="OpenAI",
+        published_at=datetime(2026, 3, 26, 8, 5, tzinfo=UTC),
+        content="The post introduces a toolkit for evaluating agent workflows.",
+        metadata={"category": "blog"},
+    )
 
 
 def test_story_review_and_publish_flow() -> None:
@@ -55,3 +89,42 @@ def test_story_review_and_publish_flow() -> None:
         jobs_response = client.get("/publish-jobs")
         assert jobs_response.status_code == 200
         assert len(jobs_response.json()) >= 2
+
+
+def test_pipeline_debug_endpoints_expose_normalized_items_and_rebuild() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase03_api.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={
+            "github": StubConnector(items=[_github_item()]),
+            "rss": StubConnector(items=[_openai_blog_item()]),
+        },
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["github-trending", "openai-blog"]})
+        assert ingest_response.status_code == 200
+
+        normalized_response = client.get("/normalized-items")
+        assert normalized_response.status_code == 200
+        normalized_items = normalized_response.json()
+        assert len(normalized_items) == 2
+        assert normalized_items[0]["canonical_url"].startswith("https://")
+        assert normalized_items[0]["language"] == "en"
+
+        rebuild_response = client.post("/pipeline/stories/rebuild")
+        assert rebuild_response.status_code == 200
+        rebuild_payload = rebuild_response.json()
+        assert rebuild_payload["normalized_items"] == 2
+        assert rebuild_payload["stories"] == 1
+
+        stories_response = client.get("/stories")
+        assert stories_response.status_code == 200
+        story_id = stories_response.json()[0]["id"]
+
+        approve_response = client.post(f"/stories/{story_id}/approve")
+        assert approve_response.status_code == 200
+        assert approve_response.json()["status"] == StoryStatus.APPROVED

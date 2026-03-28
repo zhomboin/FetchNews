@@ -1021,3 +1021,236 @@ a {
 .action-status strong {
   color: var(--text);
 }
+
+.status-approved {
+  background: rgba(111, 143, 133, 0.14);
+  color: #5e7b73;
+}
+
+.story-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.1fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.field-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.field-shell span,
+.filter-caption,
+.story-risk-copy p,
+.risk-stat p,
+.story-actions span {
+  margin: 0;
+}
+
+.field-shell span,
+.filter-caption,
+.story-risk-copy p,
+.risk-stat p {
+  color: #91744b;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.field-shell input {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1px solid rgba(64, 52, 37, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--text);
+  font: inherit;
+}
+
+.field-shell input::placeholder {
+  color: rgba(111, 98, 83, 0.72);
+}
+
+.field-shell input:focus {
+  outline: 0;
+  border-color: rgba(185, 147, 94, 0.42);
+  box-shadow: 0 0 0 4px rgba(185, 147, 94, 0.12);
+}
+
+.story-control-stack,
+.filter-group {
+  display: grid;
+  gap: 10px;
+}
+
+.filter-chip-row,
+.tag-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag-filter-row {
+  margin-top: 18px;
+}
+
+.filter-chip {
+  border: 1px solid rgba(64, 52, 37, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--text-soft);
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.filter-chip:hover {
+  color: var(--text);
+  border-color: rgba(185, 147, 94, 0.24);
+}
+
+.filter-chip.active {
+  color: var(--text);
+  border-color: rgba(185, 147, 94, 0.34);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(241, 232, 219, 0.74));
+}
+
+.risk-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.risk-stat {
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(64, 52, 37, 0.08);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.risk-stat strong,
+.risk-stat span,
+.story-risk-copy strong,
+.story-risk-copy span,
+.story-actions span {
+  margin: 0;
+}
+
+.risk-stat strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 1.34rem;
+  font-family: "Syne", sans-serif;
+}
+
+.risk-stat span,
+.story-risk-copy span,
+.story-actions span {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-soft);
+  line-height: 1.6;
+  font-size: 0.86rem;
+}
+
+.risk-stat[data-tone="watch"] {
+  border-color: rgba(157, 112, 71, 0.18);
+  background: linear-gradient(180deg, rgba(255, 251, 245, 0.84), rgba(247, 237, 226, 0.72));
+}
+
+.risk-stat[data-tone="calm"] {
+  border-color: rgba(111, 143, 133, 0.16);
+  background: linear-gradient(180deg, rgba(250, 253, 251, 0.86), rgba(241, 247, 244, 0.7));
+}
+
+.story-topline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.story-card[data-tone="watch"] {
+  border-color: rgba(157, 112, 71, 0.14);
+}
+
+.story-card[data-tone="calm"] {
+  border-color: rgba(111, 143, 133, 0.14);
+}
+
+.story-card[data-tone="alert"] {
+  border-color: rgba(155, 93, 85, 0.18);
+}
+
+.story-risk-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(64, 52, 37, 0.08);
+}
+
+.story-risk-rail[data-tone="watch"] {
+  background: linear-gradient(180deg, rgba(255, 250, 244, 0.82), rgba(249, 240, 229, 0.74));
+  border-color: rgba(157, 112, 71, 0.18);
+}
+
+.story-risk-rail[data-tone="calm"] {
+  background: linear-gradient(180deg, rgba(250, 254, 252, 0.86), rgba(240, 247, 243, 0.74));
+  border-color: rgba(111, 143, 133, 0.18);
+}
+
+.story-risk-rail[data-tone="alert"] {
+  background: linear-gradient(180deg, rgba(255, 247, 245, 0.86), rgba(248, 234, 231, 0.72));
+  border-color: rgba(155, 93, 85, 0.2);
+}
+
+.story-risk-copy strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1rem;
+}
+
+.story-flag-list {
+  justify-content: flex-end;
+  align-content: flex-start;
+}
+
+.story-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.story-actions .button-secondary {
+  flex-shrink: 0;
+}
+
+@media (max-width: 1180px) {
+  .story-filter-grid,
+  .risk-overview-grid,
+  .story-layout,
+  .story-risk-rail {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .story-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-chip,
+  .button-secondary,
+  .button-primary {
+    width: 100%;
+    justify-content: center;
+  }
+}

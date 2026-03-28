@@ -22,6 +22,40 @@ type ApiIngestRunRequest = {
   source_slugs?: string[];
 };
 
+type ApiStoryRecord = {
+  id: number;
+  status: string;
+  story_key: string;
+  cluster_title: string;
+  summary: string;
+  highlights: string[];
+  source_links: string[];
+  tags: string[];
+  risk_flags: string[];
+  score: number;
+  item_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+type ApiNormalizedItem = {
+  raw_item_id: number | null;
+  source_slug: string;
+  source_priority: string;
+  external_id: string;
+  canonical_url: string;
+  title: string;
+  normalized_title: string;
+  author: string | null;
+  published_at: string;
+  summary: string;
+  content: string;
+  language: string;
+  tags: string[];
+  keywords: string[];
+  metadata: Record<string, unknown>;
+};
+
 /**
  * Minimal health payload returned by the backend.
  */
@@ -74,6 +108,54 @@ export type IngestRunRequest = {
   sourceSlugs?: string[];
 };
 
+/**
+ * Story model consumed by the review console.
+ */
+export type StoryRecord = {
+  id: number;
+  status: string;
+  storyKey: string;
+  clusterTitle: string;
+  summary: string;
+  highlights: string[];
+  sourceLinks: string[];
+  tags: string[];
+  riskFlags: string[];
+  score: number;
+  itemCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+/**
+ * Standardized item used to inspect normalization quality.
+ */
+export type NormalizedItemRecord = {
+  rawItemId: number | null;
+  sourceSlug: string;
+  sourcePriority: string;
+  externalId: string;
+  canonicalUrl: string;
+  title: string;
+  normalizedTitle: string;
+  author: string | null;
+  publishedAt: string;
+  summary: string;
+  content: string;
+  language: string;
+  tags: string[];
+  keywords: string[];
+  metadata: Record<string, unknown>;
+};
+
+/**
+ * Result returned by manual story pipeline rebuilds.
+ */
+export type PipelineRebuildResult = {
+  normalizedItems: number;
+  stories: number;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
@@ -102,6 +184,44 @@ function mapIngestRunRecord(apiRun: ApiIngestRunRecord): IngestRunRecord {
     errors: apiRun.errors.map(mapIngestRunError),
     startedAt: apiRun.started_at,
     finishedAt: apiRun.finished_at,
+  };
+}
+
+function mapStoryRecord(apiStory: ApiStoryRecord): StoryRecord {
+  return {
+    id: apiStory.id,
+    status: apiStory.status,
+    storyKey: apiStory.story_key,
+    clusterTitle: apiStory.cluster_title,
+    summary: apiStory.summary,
+    highlights: apiStory.highlights,
+    sourceLinks: apiStory.source_links,
+    tags: apiStory.tags,
+    riskFlags: apiStory.risk_flags,
+    score: apiStory.score,
+    itemCount: apiStory.item_count,
+    firstSeenAt: apiStory.first_seen_at,
+    lastSeenAt: apiStory.last_seen_at,
+  };
+}
+
+function mapNormalizedItem(apiItem: ApiNormalizedItem): NormalizedItemRecord {
+  return {
+    rawItemId: apiItem.raw_item_id,
+    sourceSlug: apiItem.source_slug,
+    sourcePriority: apiItem.source_priority,
+    externalId: apiItem.external_id,
+    canonicalUrl: apiItem.canonical_url,
+    title: apiItem.title,
+    normalizedTitle: apiItem.normalized_title,
+    author: apiItem.author,
+    publishedAt: apiItem.published_at,
+    summary: apiItem.summary,
+    content: apiItem.content,
+    language: apiItem.language,
+    tags: apiItem.tags,
+    keywords: apiItem.keywords,
+    metadata: apiItem.metadata,
   };
 }
 
@@ -143,4 +263,41 @@ export async function triggerIngestRun(payload: IngestRunRequest): Promise<Inges
   });
 
   return mapIngestRunRecord(apiRun);
+}
+
+/**
+ * Loads clustered stories produced by the Phase 03 pipeline.
+ */
+export async function fetchStories(): Promise<StoryRecord[]> {
+  const apiStories = await requestJson<ApiStoryRecord[]>("/stories");
+  return apiStories.map(mapStoryRecord);
+}
+
+/**
+ * Loads normalized items for inspecting URL cleanup and title normalization.
+ */
+export async function fetchNormalizedItems(limit = 12): Promise<NormalizedItemRecord[]> {
+  const apiItems = await requestJson<ApiNormalizedItem[]>(`/normalized-items?limit=${limit}`);
+  return apiItems.map(mapNormalizedItem);
+}
+
+/**
+ * Re-runs the story pipeline against the current raw item set.
+ */
+export async function rebuildStoriesPipeline(): Promise<PipelineRebuildResult> {
+  const payload = await requestJson<{ normalized_items: number; stories: number }>("/pipeline/stories/rebuild", {
+    method: "POST",
+  });
+  return {
+    normalizedItems: payload.normalized_items,
+    stories: payload.stories,
+  };
+}
+/**
+ * Marks a story as approved for downstream digest generation.
+ */
+export function approveStory(storyId: number): Promise<{ id: number; status: string }> {
+  return requestJson<{ id: number; status: string }>(`/stories/${storyId}/approve`, {
+    method: "POST",
+  });
 }

@@ -5,6 +5,7 @@ import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router
 
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { PreviewDashboard } from "./features/preview/preview-dashboard";
+import { StoriesPage } from "./features/stories/stories-page";
 import { fetchHealth } from "./lib/api";
 import "./styles.css";
 
@@ -14,7 +15,7 @@ const BACKEND_OFFLINE_STATUS = "预览模式 | 后端未连接";
 const NAV_SECTIONS = [
   { path: "/", label: "总览" },
   { path: "/ingestion", label: "采集运行" },
-  { path: "/stories", label: "审核队列" },
+  { path: "/stories", label: "聚类结果" },
   { path: "/articles", label: "草稿中心" },
   { path: "/publishing", label: "发布与日志" },
 ];
@@ -62,7 +63,7 @@ function Shell(): React.JSX.Element {
         <Routes>
           <Route path="/" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="/ingestion" element={<IngestionRunsPage health={health} />} />
-          <Route path="/stories" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/stories" element={<StoriesPage health={health} />} />
           <Route path="/articles" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="/publishing" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="*" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />

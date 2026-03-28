@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from fetchnews.main import create_app
-from fetchnews.models import IngestRun, IngestRunStatus, RawItem, Source
+from fetchnews.models import IngestRun, IngestRunStatus, NormalizedItemRecord, RawItem, Source, Story
 from fetchnews.schemas import RawIngestedItem
 from fetchnews.settings import Settings
 from fetchnews.tasks.worker import run_ingestion_job
@@ -25,39 +25,64 @@ def _github_item() -> RawIngestedItem:
     return RawIngestedItem(
         source_slug="github-trending",
         external_id="repo-1",
-        title="OpenAI ships a new agent toolkit",
-        url="https://github.com/openai/agents",
+        title="OpenAI releases agent benchmark toolkit",
+        url="https://github.com/openai/agent-bench",
         author="openai",
         published_at=datetime(2026, 3, 26, 8, 0, tzinfo=UTC),
-        content="A new agent toolkit reached trending.",
+        content="A new agent benchmark toolkit reached trending.",
         metadata={"stars": 1200},
     )
 
 
-def test_ingest_run_persists_sources_runs_and_raw_items() -> None:
+def _openai_blog_item() -> RawIngestedItem:
+    return RawIngestedItem(
+        source_slug="openai-blog",
+        external_id="blog-1",
+        title="OpenAI releases an agent benchmark toolkit",
+        url="https://openai.com/blog/agent-benchmark-toolkit?utm_source=x",
+        author="OpenAI",
+        published_at=datetime(2026, 3, 26, 8, 5, tzinfo=UTC),
+        content="The post introduces a toolkit for evaluating agent workflows.",
+        metadata={"category": "blog"},
+    )
+
+
+def test_ingest_run_persists_pipeline_outputs_and_clusters_similar_items() -> None:
     settings = Settings(
         database_url="sqlite:///./test_ingestion.db",
         redis_url="redis://localhost:6379/0",
         environment="test",
     )
-    connector_overrides = {"github": StubConnector(items=[_github_item()])}
+    connector_overrides = {
+        "github": StubConnector(items=[_github_item()]),
+        "rss": StubConnector(items=[_openai_blog_item()]),
+    }
     app = create_app(settings, connector_overrides=connector_overrides)
 
     with TestClient(app) as client:
-        response = client.post("/ingest/run", json={"source_slugs": ["github-trending"]})
+        response = client.post("/ingest/run", json={"source_slugs": ["github-trending", "openai-blog"]})
 
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == IngestRunStatus.COMPLETED
-        assert payload["sources_total"] == 1
-        assert payload["sources_succeeded"] == 1
+        assert payload["sources_total"] == 2
+        assert payload["sources_succeeded"] == 2
         assert payload["sources_failed"] == 0
-        assert payload["items_ingested"] == 1
+        assert payload["items_ingested"] == 2
+
+        stories_response = client.get("/stories")
+        assert stories_response.status_code == 200
+        stories = stories_response.json()
+        assert len(stories) == 1
+        assert stories[0]["item_count"] == 2
+        assert len(stories[0]["source_links"]) == 2
 
         with app.state.container.session_factory() as session:
-            assert session.scalar(select(func.count()).select_from(Source)) == 1
+            assert session.scalar(select(func.count()).select_from(Source)) == 2
             assert session.scalar(select(func.count()).select_from(IngestRun)) == 1
-            assert session.scalar(select(func.count()).select_from(RawItem)) == 1
+            assert session.scalar(select(func.count()).select_from(RawItem)) == 2
+            assert session.scalar(select(func.count()).select_from(NormalizedItemRecord)) == 2
+            assert session.scalar(select(func.count()).select_from(Story)) == 1
 
 
 def test_ingest_run_is_idempotent_and_isolates_failures() -> None:
@@ -85,6 +110,8 @@ def test_ingest_run_is_idempotent_and_isolates_failures() -> None:
 
         with app.state.container.session_factory() as session:
             assert session.scalar(select(func.count()).select_from(RawItem)) == 1
+            assert session.scalar(select(func.count()).select_from(NormalizedItemRecord)) == 1
+            assert session.scalar(select(func.count()).select_from(Story)) == 1
             assert session.scalar(select(func.count()).select_from(IngestRun)) == 2
 
 
@@ -129,12 +156,14 @@ def test_worker_can_run_ingestion_job_with_overrides() -> None:
     assert result["sources_total"] == 1
     assert result["items_ingested"] == 1
 
+
 def test_worker_registers_periodic_ingestion_schedule() -> None:
     from fetchnews.tasks.worker import celery_app
 
     schedule = celery_app.conf.beat_schedule
     assert "ingest-default-sources" in schedule
     assert schedule["ingest-default-sources"]["task"] == "fetchnews.ingest.run"
+
 
 def test_source_catalog_endpoint_returns_enabled_specs() -> None:
     app = create_app(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,15 +14,19 @@ from fetchnews.models import (
     ArticleDraft,
     ArticleStatus,
     IngestRun,
+    NormalizedItemRecord,
     PublishJob,
     PublishJobStatus,
     Story,
     StoryStatus,
 )
 from fetchnews.pipeline.generation import generate_daily_digest
+from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import (
     IngestRunRequest,
     IngestRunResponse,
+    NormalizedItem,
+    PipelineRebuildResponse,
     PublishJobResponse,
     PublishRequest,
     StoryCandidate,
@@ -103,6 +107,24 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
             raise HTTPException(status_code=404, detail="Ingest run not found")
         return ingest_run_to_response(run)
 
+    @app.get("/normalized-items", response_model=list[NormalizedItem])
+    def list_normalized_items(
+        limit: int = Query(default=50, ge=1, le=200),
+        db: Session = Depends(get_db),
+    ) -> list[NormalizedItem]:
+        items = db.scalars(
+            select(NormalizedItemRecord)
+            .order_by(NormalizedItemRecord.published_at.desc(), NormalizedItemRecord.id.desc())
+            .limit(limit)
+        ).all()
+        return [_normalized_item_to_response(item) for item in items]
+
+    @app.post("/pipeline/stories/rebuild", response_model=PipelineRebuildResponse)
+    def rebuild_story_pipeline(db: Session = Depends(get_db)) -> PipelineRebuildResponse:
+        result = run_story_pipeline(db)
+        db.commit()
+        return PipelineRebuildResponse(**result)
+
     @app.post("/stories", response_model=StoryResponse, status_code=201)
     def create_story(payload: StoryCreatePayload, db: Session = Depends(get_db)) -> StoryResponse:
         story = Story(status=StoryStatus.PENDING, **payload.model_dump())
@@ -113,7 +135,7 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
 
     @app.get("/stories", response_model=list[StoryResponse])
     def list_stories(db: Session = Depends(get_db)) -> list[StoryResponse]:
-        stories = db.scalars(select(Story).order_by(Story.score.desc())).all()
+        stories = db.scalars(select(Story).order_by(Story.score.desc(), Story.last_seen_at.desc())).all()
         return [
             StoryResponse(
                 id=story.id,
@@ -268,6 +290,26 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
         return {"id": job.id, "status": job.status, "retries": job.retries}
 
     return app
+
+
+def _normalized_item_to_response(item: NormalizedItemRecord) -> NormalizedItem:
+    return NormalizedItem(
+        raw_item_id=item.raw_item_id,
+        source_slug=item.source_slug,
+        source_priority=item.source_priority,
+        external_id=item.external_id,
+        canonical_url=item.canonical_url,
+        title=item.title,
+        normalized_title=item.normalized_title,
+        author=item.author,
+        published_at=item.published_at,
+        summary=item.summary,
+        content=item.content,
+        language=item.language,
+        tags=item.tags,
+        keywords=item.keywords,
+        metadata=item.payload,
+    )
 
 
 app = create_app()

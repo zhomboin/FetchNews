@@ -27,7 +27,9 @@ class RawIngestedItem(BaseModel):
 
 
 class NormalizedItem(BaseModel):
+    raw_item_id: int | None = None
     source_slug: str
+    source_priority: str = "P2"
     external_id: str
     canonical_url: str
     title: str
@@ -36,6 +38,9 @@ class NormalizedItem(BaseModel):
     published_at: datetime
     summary: str
     content: str
+    language: str = "unknown"
+    tags: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
 
@@ -106,6 +111,11 @@ class IngestRunResponse(BaseModel):
     errors: list[IngestRunError] = Field(default_factory=list)
     started_at: datetime
     finished_at: datetime | None = None
+
+
+class PipelineRebuildResponse(BaseModel):
+    normalized_items: int
+    stories: int
 
 
 class PublishRequest(BaseModel):

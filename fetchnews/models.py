@@ -87,6 +87,33 @@ class RawItem(Base):
     last_ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class NormalizedItemRecord(Base):
+    __tablename__ = "normalized_items"
+    __table_args__ = (UniqueConstraint("raw_item_id", name="uq_normalized_items_raw_item_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    raw_item_id: Mapped[int] = mapped_column(ForeignKey("raw_items.id"), index=True)
+    source_slug: Mapped[str] = mapped_column(String(120), index=True)
+    source_priority: Mapped[str] = mapped_column(String(10), index=True)
+    external_id: Mapped[str] = mapped_column(String(255))
+    canonical_url: Mapped[str] = mapped_column(String(1000), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    normalized_title: Mapped[str] = mapped_column(String(500), index=True)
+    author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(20), default="unknown")
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 class Story(Base):
     __tablename__ = "stories"
 

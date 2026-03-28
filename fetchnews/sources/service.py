@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import IngestRun, IngestRunStatus, RawItem, Source
+from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import IngestRunError, IngestRunResponse, RawIngestedItem, SourceSpec
 from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.connectors import SourceConnector, build_default_connector_registry
@@ -49,12 +51,17 @@ def execute_ingest_run(
             failed += 1
             errors.append({"source_slug": spec.slug, "message": str(exc)})
 
+    try:
+        run_story_pipeline(session)
+    except Exception as exc:
+        errors.append({"source_slug": "pipeline", "message": str(exc)})
+
     run.sources_succeeded = succeeded
     run.sources_failed = failed
     run.items_ingested = items_ingested
     run.errors = errors
     run.finished_at = datetime.now(UTC)
-    if failed == 0:
+    if not errors:
         run.status = IngestRunStatus.COMPLETED
     elif succeeded == 0:
         run.status = IngestRunStatus.FAILED
