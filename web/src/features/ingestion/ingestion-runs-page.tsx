@@ -3,13 +3,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { IngestRunRecord, SourceSpec, fetchIngestRuns, fetchSourceSpecs, triggerIngestRun } from "../../lib/api";
 
+const SOURCE_SPECS_QUERY_KEY = ["sourceSpecs"] as const;
+const INGEST_RUNS_QUERY_KEY = ["ingestRuns"] as const;
+const RUN_POLLING_INTERVAL_MS = 30_000;
+const RUNNING_LABEL = "进行中";
+
 type IngestionRunsPageProps = {
   health: string;
 };
 
+type IngestionMetrics = {
+  totalRuns: number;
+  failedRuns: number;
+  totalItems: number;
+  totalSources: number;
+};
+
 function formatDateTime(value: string | null): string {
   if (!value) {
-    return "进行中";
+    return RUNNING_LABEL;
   }
 
   return new Intl.DateTimeFormat("zh-CN", {
@@ -20,61 +32,64 @@ function formatDateTime(value: string | null): string {
   }).format(new Date(value));
 }
 
-function summarize(runs: IngestRunRecord[]) {
+function summarizeRuns(runs: IngestRunRecord[]): IngestionMetrics {
   return {
     totalRuns: runs.length,
-    failedRuns: runs.filter((run) => run.sources_failed > 0).length,
-    totalItems: runs.reduce((sum, run) => sum + run.items_ingested, 0),
-    totalSources: runs.reduce((sum, run) => sum + run.sources_total, 0),
+    failedRuns: runs.filter((run) => run.sourcesFailed > 0).length,
+    totalItems: runs.reduce((sum, run) => sum + run.itemsIngested, 0),
+    totalSources: runs.reduce((sum, run) => sum + run.sourcesTotal, 0),
   };
 }
 
-function defaultP0Selection(sources: SourceSpec[]): string[] {
+function getDefaultP0Selection(sources: SourceSpec[]): string[] {
   return sources.filter((source) => source.priority === "P0").map((source) => source.slug);
 }
 
-export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
+/**
+ * Shows recent ingestion runs and lets operators manually trigger a new batch.
+ */
+export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX.Element {
   const queryClient = useQueryClient();
   const sourcesQuery = useQuery({
-    queryKey: ["source-specs"],
+    queryKey: SOURCE_SPECS_QUERY_KEY,
     queryFn: fetchSourceSpecs,
   });
   const runsQuery = useQuery({
-    queryKey: ["ingest-runs"],
+    queryKey: INGEST_RUNS_QUERY_KEY,
     queryFn: fetchIngestRuns,
-    refetchInterval: 30_000,
+    refetchInterval: RUN_POLLING_INTERVAL_MS,
   });
   const [selectedSlugs, setSelectedSlugs] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     if (sourcesQuery.data && selectedSlugs.length === 0) {
-      setSelectedSlugs(defaultP0Selection(sourcesQuery.data));
+      setSelectedSlugs(getDefaultP0Selection(sourcesQuery.data));
     }
   }, [selectedSlugs.length, sourcesQuery.data]);
 
   const triggerMutation = useMutation({
-    mutationFn: (sourceSlugs: string[]) => triggerIngestRun({ source_slugs: sourceSlugs }),
+    mutationFn: (sourceSlugs: string[]) => triggerIngestRun({ sourceSlugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["ingest-runs"] });
+      void queryClient.invalidateQueries({ queryKey: INGEST_RUNS_QUERY_KEY });
     },
   });
 
   const runs = runsQuery.data ?? [];
-  const metrics = summarize(runs);
+  const metrics = summarizeRuns(runs);
   const sourceSpecs = sourcesQuery.data ?? [];
 
-  function toggleSource(slug: string) {
+  function toggleSource(slug: string): void {
     setSelectedSlugs((current) =>
       current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug],
     );
   }
 
-  function selectAll() {
+  function selectAllSources(): void {
     setSelectedSlugs(sourceSpecs.map((source) => source.slug));
   }
 
-  function selectP0() {
-    setSelectedSlugs(defaultP0Selection(sourceSpecs));
+  function selectP0Sources(): void {
+    setSelectedSlugs(getDefaultP0Selection(sourceSpecs));
   }
 
   return (
@@ -84,7 +99,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
           <p className="eyebrow">Ingestion Ledger</p>
           <h1>采集运行</h1>
           <p className="lede">
-            查看最近的来源抓取批次、来源覆盖、失败情况和入库结果。现在也支持从这个页面直接触发一次手动采集。
+            查看最近的来源抓取批次、来源覆盖、失败情况和入库结果。当前页面也支持直接触发一次手动采集。
           </p>
         </div>
 
@@ -109,7 +124,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
         <article className="metric-cell">
           <p>异常批次</p>
           <strong>{metrics.failedRuns}</strong>
-          <span>含失败来源的运行数</span>
+          <span>包含失败来源的运行数</span>
         </article>
         <article className="metric-cell">
           <p>入库条目</p>
@@ -132,7 +147,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
           <span>默认勾选 P0 来源</span>
         </header>
 
-        {sourcesQuery.isLoading ? <div className="empty-state">正在载入来源目录…</div> : null}
+        {sourcesQuery.isLoading ? <div className="empty-state">正在加载来源目录...</div> : null}
         {sourcesQuery.isError ? <div className="empty-state">来源目录加载失败，请确认 `/sources` 接口可用。</div> : null}
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
@@ -155,10 +170,10 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
             </div>
 
             <div className="action-row">
-              <button type="button" className="button-secondary" onClick={selectP0} disabled={sourcesQuery.isLoading}>
+              <button type="button" className="button-secondary" onClick={selectP0Sources} disabled={sourcesQuery.isLoading}>
                 仅选 P0
               </button>
-              <button type="button" className="button-secondary" onClick={selectAll} disabled={sourcesQuery.isLoading}>
+              <button type="button" className="button-secondary" onClick={selectAllSources} disabled={sourcesQuery.isLoading}>
                 全选启用来源
               </button>
               <button
@@ -167,7 +182,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
                 onClick={() => triggerMutation.mutate(selectedSlugs)}
                 disabled={selectedSlugs.length === 0 || triggerMutation.isPending}
               >
-                {triggerMutation.isPending ? "采集中…" : "立即采集"}
+                {triggerMutation.isPending ? "采集中..." : "立即采集"}
               </button>
             </div>
 
@@ -189,9 +204,11 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
           <span>{runsQuery.isFetching ? "刷新中" : "30 秒自动刷新"}</span>
         </header>
 
-        {runsQuery.isLoading ? <div className="empty-state">正在载入采集批次…</div> : null}
+        {runsQuery.isLoading ? <div className="empty-state">正在加载采集批次...</div> : null}
         {runsQuery.isError ? <div className="empty-state">采集批次加载失败，请确认后端接口可用。</div> : null}
-        {!runsQuery.isLoading && !runsQuery.isError && runs.length === 0 ? <div className="empty-state">还没有采集运行记录。</div> : null}
+        {!runsQuery.isLoading && !runsQuery.isError && runs.length === 0 ? (
+          <div className="empty-state">还没有采集运行记录。</div>
+        ) : null}
 
         {!runsQuery.isLoading && !runsQuery.isError && runs.length > 0 ? (
           <div className="ingest-run-list">
@@ -204,7 +221,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
                   </div>
 
                   <div className="source-chip-list">
-                    {run.source_slugs.map((slug) => (
+                    {run.sourceSlugs.map((slug) => (
                       <span key={slug} className="source-chip">
                         {slug}
                       </span>
@@ -214,8 +231,8 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
                   {run.errors.length > 0 ? (
                     <div className="run-errors">
                       {run.errors.map((error) => (
-                        <p key={`${run.id}-${error.source_slug}`}>
-                          {error.source_slug}: {error.message}
+                        <p key={`${run.id}-${error.sourceSlug}`}>
+                          {error.sourceSlug}: {error.message}
                         </p>
                       ))}
                     </div>
@@ -228,20 +245,20 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps) {
                   <div>
                     <span>来源</span>
                     <strong>
-                      {run.sources_succeeded}/{run.sources_total}
+                      {run.sourcesSucceeded}/{run.sourcesTotal}
                     </strong>
                   </div>
                   <div>
                     <span>入库</span>
-                    <strong>{run.items_ingested}</strong>
+                    <strong>{run.itemsIngested}</strong>
                   </div>
                   <div>
                     <span>开始</span>
-                    <strong>{formatDateTime(run.started_at)}</strong>
+                    <strong>{formatDateTime(run.startedAt)}</strong>
                   </div>
                   <div>
                     <span>完成</span>
-                    <strong>{formatDateTime(run.finished_at)}</strong>
+                    <strong>{formatDateTime(run.finishedAt)}</strong>
                   </div>
                 </div>
               </article>

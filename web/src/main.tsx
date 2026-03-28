@@ -8,9 +8,10 @@ import { PreviewDashboard } from "./features/preview/preview-dashboard";
 import { fetchHealth } from "./lib/api";
 import "./styles.css";
 
-const queryClient = new QueryClient();
-
-const sections = [
+const QUERY_CLIENT = new QueryClient();
+const DEFAULT_HEALTH_STATUS = "预览模式";
+const BACKEND_OFFLINE_STATUS = "预览模式 | 后端未连接";
+const NAV_SECTIONS = [
   { path: "/", label: "总览" },
   { path: "/ingestion", label: "采集运行" },
   { path: "/stories", label: "审核队列" },
@@ -18,14 +19,14 @@ const sections = [
   { path: "/publishing", label: "发布与日志" },
 ];
 
-function Shell() {
+function Shell(): React.JSX.Element {
   const location = useLocation();
-  const [health, setHealth] = React.useState<string>("预览模式");
+  const [health, setHealth] = React.useState(DEFAULT_HEALTH_STATUS);
 
   React.useEffect(() => {
     fetchHealth()
-      .then((data) => setHealth(`${data.service} · ${data.status}`))
-      .catch(() => setHealth("预览模式 · 后端未连接"));
+      .then((data) => setHealth(`${data.service} | ${data.status}`))
+      .catch(() => setHealth(BACKEND_OFFLINE_STATUS));
   }, []);
 
   return (
@@ -43,7 +44,7 @@ function Shell() {
         </div>
 
         <nav className="rail-nav">
-          {sections.map((section) => (
+          {NAV_SECTIONS.map((section) => (
             <NavLink key={section.path} to={section.path} end={section.path === "/"}>
               {section.label}
             </NavLink>
@@ -71,7 +72,7 @@ function Shell() {
   );
 }
 
-function App() {
+function App(): React.JSX.Element {
   return (
     <BrowserRouter>
       <Shell />
@@ -81,7 +82,7 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={QUERY_CLIENT}>
       <App />
     </QueryClientProvider>
   </React.StrictMode>,

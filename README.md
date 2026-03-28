@@ -52,6 +52,7 @@
 - 协作约定：[AGENTS.md](/D:/Code/Project/FetchNews/AGENTS.md)
 - 系统架构：[docs/architecture.md](/D:/Code/Project/FetchNews/docs/architecture.md)
 - 前端风格：[docs/frontend-style.md](/D:/Code/Project/FetchNews/docs/frontend-style.md)
+- TypeScript 约束：[docs/typescript-style.md](/D:/Code/Project/FetchNews/docs/typescript-style.md)
 - 来源清单：[docs/content-sources.md](/D:/Code/Project/FetchNews/docs/content-sources.md)
 - 实施路线：[docs/implementation-roadmap.md](/D:/Code/Project/FetchNews/docs/implementation-roadmap.md)
 - 项目计划目录：[docs/project-plan/README.md](/D:/Code/Project/FetchNews/docs/project-plan/README.md)

@@ -83,6 +83,23 @@ web/
 - [docs/assets/fetchnews-warm-metal-preview.png](/D:/Code/Project/FetchNews/docs/assets/fetchnews-warm-metal-preview.png)
 - [.impeccable.md](/D:/Code/Project/FetchNews/.impeccable.md)
 
+## TypeScript 开发约束
+
+前端 TypeScript 代码遵循 Google TypeScript Style Guide 的语法规范基线，并结合本项目做如下约束：
+
+- 组件、类型、接口使用 `UpperCamelCase`
+- 变量、函数、方法、参数、普通属性使用 `lowerCamelCase`
+- 模块级不可变常量使用 `CONSTANT_CASE`
+- 禁止使用 `_` 前缀或后缀命名
+- 前端内部状态、视图模型统一使用 `camelCase`
+- 后端 `snake_case` 字段只能停留在 API 边界层，由 `web/src/lib/api.ts` 做映射
+- 导出的顶层类型、函数、组件在必要时补充有意义的 `/** JSDoc */`
+- 不写重复类型信息的注释，不使用 `@override`
+
+实现前端功能前先对照：
+
+- [docs/typescript-style.md](/D:/Code/Project/FetchNews/docs/typescript-style.md)
+
 ## 文件编码约定
 
 - 仓库内所有文本文件统一使用 `UTF-8`，无 `BOM`
