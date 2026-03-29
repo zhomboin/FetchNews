@@ -58,6 +58,7 @@ type ApiNormalizedItem = {
 
 type ApiArticleDraft = {
   id: number;
+  period_type: string;
   target_date: string;
   title: string;
   summary: string;
@@ -102,6 +103,34 @@ type ApiPublishPollResult = {
   jobs_polled: number;
   jobs_completed: number;
   jobs_failed: number;
+};
+
+type ApiFailureGroup = {
+  category: string;
+  reason: string;
+  count: number;
+  targets: string[];
+  suggestion: string;
+};
+
+type ApiOpsSummary = {
+  ingest_runs_total: number;
+  ingest_runs_failed: number;
+  items_ingested_total: number;
+  stories_total: number;
+  stories_approved: number;
+  stories_pending: number;
+  articles_total: number;
+  articles_ready: number;
+  articles_published: number;
+  articles_failed: number;
+  publish_jobs_total: number;
+  publish_jobs_scheduled: number;
+  publish_jobs_published: number;
+  publish_jobs_failed: number;
+  publish_success_rate: number;
+  due_publish_jobs: number;
+  recent_failure_groups: ApiFailureGroup[];
 };
 
 /**
@@ -205,10 +234,16 @@ export type PipelineRebuildResult = {
 };
 
 /**
+ * Supported digest periods in the review console.
+ */
+export type ArticlePeriodType = "daily" | "weekly" | "monthly";
+
+/**
  * Generated article draft persisted for review and publishing.
  */
 export type ArticleDraftRecord = {
   id: number;
+  periodType: ArticlePeriodType;
   targetDate: string;
   title: string;
   summary: string;
@@ -224,7 +259,7 @@ export type ArticleDraftRecord = {
 };
 
 /**
- * Platform-specific post variant derived from a daily digest.
+ * Platform-specific post variant derived from a digest.
  */
 export type PostVariantRecord = {
   id: number;
@@ -237,7 +272,7 @@ export type PostVariantRecord = {
 /**
  * Request payload for article generation.
  */
-export type GenerateDailyArticlePayload = {
+export type GenerateArticlePayload = {
   targetDate: string;
   storyIds?: number[];
   generationNote?: string;
@@ -291,6 +326,40 @@ export type PublishPollResult = {
   jobsPolled: number;
   jobsCompleted: number;
   jobsFailed: number;
+};
+
+/**
+ * Aggregated recent failure causes used in the operations dashboard.
+ */
+export type FailureGroupRecord = {
+  category: string;
+  reason: string;
+  count: number;
+  targets: string[];
+  suggestion: string;
+};
+
+/**
+ * Aggregated operations metrics used by the real dashboard.
+ */
+export type OpsSummaryRecord = {
+  ingestRunsTotal: number;
+  ingestRunsFailed: number;
+  itemsIngestedTotal: number;
+  storiesTotal: number;
+  storiesApproved: number;
+  storiesPending: number;
+  articlesTotal: number;
+  articlesReady: number;
+  articlesPublished: number;
+  articlesFailed: number;
+  publishJobsTotal: number;
+  publishJobsScheduled: number;
+  publishJobsPublished: number;
+  publishJobsFailed: number;
+  publishSuccessRate: number;
+  duePublishJobs: number;
+  recentFailureGroups: FailureGroupRecord[];
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -365,6 +434,7 @@ function mapNormalizedItem(apiItem: ApiNormalizedItem): NormalizedItemRecord {
 function mapArticleDraft(apiArticle: ApiArticleDraft): ArticleDraftRecord {
   return {
     id: apiArticle.id,
+    periodType: apiArticle.period_type as ArticlePeriodType,
     targetDate: apiArticle.target_date,
     title: apiArticle.title,
     summary: apiArticle.summary,
@@ -417,6 +487,38 @@ function mapPublishPollResult(apiResult: ApiPublishPollResult): PublishPollResul
     jobsPolled: apiResult.jobs_polled,
     jobsCompleted: apiResult.jobs_completed,
     jobsFailed: apiResult.jobs_failed,
+  };
+}
+
+function mapFailureGroup(apiGroup: ApiFailureGroup): FailureGroupRecord {
+  return {
+    category: apiGroup.category,
+    reason: apiGroup.reason,
+    count: apiGroup.count,
+    targets: apiGroup.targets,
+    suggestion: apiGroup.suggestion,
+  };
+}
+
+function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
+  return {
+    ingestRunsTotal: apiSummary.ingest_runs_total,
+    ingestRunsFailed: apiSummary.ingest_runs_failed,
+    itemsIngestedTotal: apiSummary.items_ingested_total,
+    storiesTotal: apiSummary.stories_total,
+    storiesApproved: apiSummary.stories_approved,
+    storiesPending: apiSummary.stories_pending,
+    articlesTotal: apiSummary.articles_total,
+    articlesReady: apiSummary.articles_ready,
+    articlesPublished: apiSummary.articles_published,
+    articlesFailed: apiSummary.articles_failed,
+    publishJobsTotal: apiSummary.publish_jobs_total,
+    publishJobsScheduled: apiSummary.publish_jobs_scheduled,
+    publishJobsPublished: apiSummary.publish_jobs_published,
+    publishJobsFailed: apiSummary.publish_jobs_failed,
+    publishSuccessRate: apiSummary.publish_success_rate,
+    duePublishJobs: apiSummary.due_publish_jobs,
+    recentFailureGroups: apiSummary.recent_failure_groups.map(mapFailureGroup),
   };
 }
 
@@ -499,18 +601,15 @@ export function approveStory(storyId: number): Promise<{ id: number; status: str
 }
 
 /**
- * Loads generated article drafts for the Phase 04 draft center.
+ * Loads generated article drafts for the draft center.
  */
 export async function fetchArticleDrafts(): Promise<ArticleDraftRecord[]> {
   const apiArticles = await requestJson<ApiArticleDraft[]>("/articles");
   return apiArticles.map(mapArticleDraft);
 }
 
-/**
- * Generates or refreshes the daily digest for a given date and story scope.
- */
-export async function generateDailyArticle(payload: GenerateDailyArticlePayload): Promise<ArticleDraftRecord> {
-  const apiArticle = await requestJson<ApiArticleDraft>("/articles/generate/daily", {
+async function generateArticle(path: string, payload: GenerateArticlePayload): Promise<ArticleDraftRecord> {
+  const apiArticle = await requestJson<ApiArticleDraft>(path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -522,6 +621,27 @@ export async function generateDailyArticle(payload: GenerateDailyArticlePayload)
     }),
   });
   return mapArticleDraft(apiArticle);
+}
+
+/**
+ * Generates or refreshes the daily digest for a given date and story scope.
+ */
+export function generateDailyArticle(payload: GenerateArticlePayload): Promise<ArticleDraftRecord> {
+  return generateArticle("/articles/generate/daily", payload);
+}
+
+/**
+ * Generates or refreshes the weekly digest for a given date and story scope.
+ */
+export function generateWeeklyArticle(payload: GenerateArticlePayload): Promise<ArticleDraftRecord> {
+  return generateArticle("/articles/generate/weekly", payload);
+}
+
+/**
+ * Generates or refreshes the monthly digest for a given date and story scope.
+ */
+export function generateMonthlyArticle(payload: GenerateArticlePayload): Promise<ArticleDraftRecord> {
+  return generateArticle("/articles/generate/monthly", payload);
 }
 
 /**
@@ -606,67 +726,6 @@ export async function pollPublishJobs(): Promise<PublishPollResult> {
     method: "POST",
   });
   return mapPublishPollResult(apiResult);
-}
-type ApiOpsSummary = {
-  ingest_runs_total: number;
-  ingest_runs_failed: number;
-  items_ingested_total: number;
-  stories_total: number;
-  stories_approved: number;
-  stories_pending: number;
-  articles_total: number;
-  articles_ready: number;
-  articles_published: number;
-  articles_failed: number;
-  publish_jobs_total: number;
-  publish_jobs_scheduled: number;
-  publish_jobs_published: number;
-  publish_jobs_failed: number;
-  publish_success_rate: number;
-  due_publish_jobs: number;
-};
-
-/**
- * Aggregated operations metrics used by the real dashboard.
- */
-export type OpsSummaryRecord = {
-  ingestRunsTotal: number;
-  ingestRunsFailed: number;
-  itemsIngestedTotal: number;
-  storiesTotal: number;
-  storiesApproved: number;
-  storiesPending: number;
-  articlesTotal: number;
-  articlesReady: number;
-  articlesPublished: number;
-  articlesFailed: number;
-  publishJobsTotal: number;
-  publishJobsScheduled: number;
-  publishJobsPublished: number;
-  publishJobsFailed: number;
-  publishSuccessRate: number;
-  duePublishJobs: number;
-};
-
-function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
-  return {
-    ingestRunsTotal: apiSummary.ingest_runs_total,
-    ingestRunsFailed: apiSummary.ingest_runs_failed,
-    itemsIngestedTotal: apiSummary.items_ingested_total,
-    storiesTotal: apiSummary.stories_total,
-    storiesApproved: apiSummary.stories_approved,
-    storiesPending: apiSummary.stories_pending,
-    articlesTotal: apiSummary.articles_total,
-    articlesReady: apiSummary.articles_ready,
-    articlesPublished: apiSummary.articles_published,
-    articlesFailed: apiSummary.articles_failed,
-    publishJobsTotal: apiSummary.publish_jobs_total,
-    publishJobsScheduled: apiSummary.publish_jobs_scheduled,
-    publishJobsPublished: apiSummary.publish_jobs_published,
-    publishJobsFailed: apiSummary.publish_jobs_failed,
-    publishSuccessRate: apiSummary.publish_success_rate,
-    duePublishJobs: apiSummary.due_publish_jobs,
-  };
 }
 
 /**

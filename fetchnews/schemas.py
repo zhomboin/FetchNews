@@ -61,6 +61,7 @@ class StoryCandidate(BaseModel):
 
 class ArticleDraftPayload(BaseModel):
     id: int | None = None
+    period_type: str = "daily"
     target_date: date
     title: str
     summary: str
@@ -178,6 +179,15 @@ class PublishPollResponse(BaseModel):
     jobs_completed: int
     jobs_failed: int = 0
 
+
+class FailureGroupResponse(BaseModel):
+    category: str
+    reason: str
+    count: int
+    targets: list[str] = Field(default_factory=list)
+    suggestion: str
+
+
 class OpsSummaryResponse(BaseModel):
     ingest_runs_total: int
     ingest_runs_failed: int
@@ -195,3 +205,4 @@ class OpsSummaryResponse(BaseModel):
     publish_jobs_failed: int
     publish_success_rate: float
     due_publish_jobs: int
+    recent_failure_groups: list[FailureGroupResponse] = Field(default_factory=list)

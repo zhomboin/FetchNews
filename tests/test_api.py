@@ -477,3 +477,129 @@ def test_ops_summary_reports_ingest_and_publish_metrics() -> None:
         assert summary_payload["publish_jobs_published"] == 1
         assert summary_payload["publish_jobs_failed"] == 1
         assert summary_payload["publish_success_rate"] == 0.5
+
+class FailingConnector:
+    def fetch(self, _source) -> list[RawIngestedItem]:
+        raise RuntimeError("rate limit from source")
+
+
+def test_ops_summary_includes_failure_groups_and_retry_suggestions() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_diagnostics.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={
+            "rss": FailingConnector(),
+        },
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["openai-blog"]})
+        assert ingest_response.status_code == 200
+        assert ingest_response.json()["status"] in {"failed", "completed_with_errors"}
+
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-failure-1",
+                cluster_title="Platform moderation rejects one post",
+                summary="A platform rejected one publish task.",
+                score=8.4,
+                tags=["publishing"],
+                source_links=["https://example.com/platform-rejected"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-04-01"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["x"], "scheduled_for": "2026-04-01T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+        assert client.post(
+            f"/publish-jobs/{job_id}/result",
+            json={"status": "failed", "error_message": "platform rejected"},
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        failure_groups = summary_response.json()["recent_failure_groups"]
+
+        publish_group = next(group for group in failure_groups if group["category"] == "publish")
+        ingest_group = next(group for group in failure_groups if group["category"] == "ingest")
+
+        assert publish_group["reason"] == "platform rejected"
+        assert publish_group["count"] == 1
+        assert publish_group["suggestion"]
+
+        assert ingest_group["reason"] == "rate limit from source"
+        assert ingest_group["count"] == 1
+        assert ingest_group["suggestion"]
+
+
+def test_generate_weekly_and_monthly_digests_can_coexist_with_daily() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_periodic.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-periodic-1",
+                cluster_title="OpenAI ships a weekly recap-worthy release",
+                summary="A high-priority release suitable for daily and weekly recap.",
+                score=9.3,
+                tags=["release", "agent"],
+                source_links=["https://openai.com/blog/weekly-release"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        daily_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-04-30"},
+        )
+        assert daily_response.status_code == 200
+        assert daily_response.json()["period_type"] == "daily"
+        assert daily_response.json()["title"].startswith("AI 资讯日报")
+
+        weekly_response = client.post(
+            "/articles/generate/weekly",
+            json={"target_date": "2026-04-30"},
+        )
+        assert weekly_response.status_code == 200
+        assert weekly_response.json()["period_type"] == "weekly"
+        assert weekly_response.json()["title"].startswith("AI 资讯周报")
+
+        monthly_response = client.post(
+            "/articles/generate/monthly",
+            json={"target_date": "2026-04-30"},
+        )
+        assert monthly_response.status_code == 200
+        assert monthly_response.json()["period_type"] == "monthly"
+        assert monthly_response.json()["title"].startswith("AI 资讯月报")
+
+        articles_response = client.get("/articles")
+        assert articles_response.status_code == 200
+        articles_payload = articles_response.json()
+        assert len(articles_payload) == 3
+        assert {article["period_type"] for article in articles_payload} == {"daily", "weekly", "monthly"}

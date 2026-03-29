@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, Story, StoryStatus
-from fetchnews.pipeline.generation import generate_daily_digest
+from fetchnews.pipeline.generation import generate_daily_digest, generate_digest
 from fetchnews.schemas import ArticleDraftResponse, PostVariantResponse, StoryCandidate
 
 
@@ -16,9 +16,56 @@ def generate_and_persist_daily_digest(
     story_ids: list[int] | None = None,
     generation_note: str | None = None,
 ) -> ArticleDraftResponse:
-    approved_stories = _load_approved_stories(session, story_ids)
-    digest = generate_daily_digest(
+    return generate_and_persist_digest(
+        session,
         target_date=target_date,
+        period_type="daily",
+        story_ids=story_ids,
+        generation_note=generation_note,
+    )
+
+
+def generate_and_persist_weekly_digest(
+    session: Session,
+    target_date: date,
+    story_ids: list[int] | None = None,
+    generation_note: str | None = None,
+) -> ArticleDraftResponse:
+    return generate_and_persist_digest(
+        session,
+        target_date=target_date,
+        period_type="weekly",
+        story_ids=story_ids,
+        generation_note=generation_note,
+    )
+
+
+def generate_and_persist_monthly_digest(
+    session: Session,
+    target_date: date,
+    story_ids: list[int] | None = None,
+    generation_note: str | None = None,
+) -> ArticleDraftResponse:
+    return generate_and_persist_digest(
+        session,
+        target_date=target_date,
+        period_type="monthly",
+        story_ids=story_ids,
+        generation_note=generation_note,
+    )
+
+
+def generate_and_persist_digest(
+    session: Session,
+    target_date: date,
+    period_type: str,
+    story_ids: list[int] | None = None,
+    generation_note: str | None = None,
+) -> ArticleDraftResponse:
+    approved_stories = _load_approved_stories(session, story_ids)
+    digest = generate_digest(
+        target_date=target_date,
+        period_type=period_type,
         stories=[_story_to_candidate(story) for story in approved_stories],
         generation_note=generation_note,
     )
@@ -26,9 +73,15 @@ def generate_and_persist_daily_digest(
     normalized_note = generation_note.strip() if generation_note and generation_note.strip() else None
     selected_story_ids = [story.id for story in approved_stories]
 
-    article = session.scalar(select(ArticleDraft).where(ArticleDraft.target_date == target_date))
+    article = session.scalar(
+        select(ArticleDraft).where(
+            ArticleDraft.period_type == period_type,
+            ArticleDraft.target_date == target_date,
+        )
+    )
     if article is None:
         article = ArticleDraft(
+            period_type=period_type,
             target_date=target_date,
             title=digest.article.title,
             summary=digest.article.summary,
@@ -41,6 +94,7 @@ def generate_and_persist_daily_digest(
         session.add(article)
         session.flush()
     else:
+        article.period_type = period_type
         article.title = digest.article.title
         article.summary = digest.article.summary
         article.body = digest.article.body
@@ -73,6 +127,7 @@ def list_article_variants(session: Session, article_id: int) -> list[PostVariant
 def article_to_response(article: ArticleDraft, variant_count: int) -> ArticleDraftResponse:
     return ArticleDraftResponse(
         id=article.id,
+        period_type=article.period_type,
         target_date=article.target_date,
         title=article.title,
         summary=article.summary,

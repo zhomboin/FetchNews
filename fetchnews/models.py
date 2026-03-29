@@ -138,9 +138,11 @@ class Story(Base):
 
 class ArticleDraft(Base):
     __tablename__ = "article_drafts"
+    __table_args__ = (UniqueConstraint("period_type", "target_date", name="uq_article_drafts_period_target_date"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    target_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    period_type: Mapped[str] = mapped_column(String(20), default="daily", index=True)
+    target_date: Mapped[date] = mapped_column(Date, index=True)
     title: Mapped[str] = mapped_column(String(300))
     summary: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)
