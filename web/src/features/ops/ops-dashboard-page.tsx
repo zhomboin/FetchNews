@@ -5,6 +5,7 @@ import {
   ArticleDraftRecord,
   FailureGroupRecord,
   PublishJobRecord,
+  PublishPlatformMetricRecord,
   fetchArticleDrafts,
   fetchOpsSummary,
   fetchPublishJobs,
@@ -90,7 +91,7 @@ function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | und
       { label: "累计入库", value: "--", note: "等待后端指标" },
       { label: "已审核 Stories", value: "--", note: "等待后端指标" },
       { label: "发布成功率", value: "--", note: "等待后端指标" },
-      { label: "诊断信号", value: "--", note: "等待后端指标" },
+      { label: "平台覆盖", value: "--", note: "等待后端指标" },
     ];
   }
 
@@ -111,9 +112,9 @@ function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | und
       note: `成功 ${summary.publishJobsPublished}，失败 ${summary.publishJobsFailed}`,
     },
     {
-      label: "诊断信号",
-      value: `${summary.recentFailureGroups.length}`,
-      note: `到期未完成 ${summary.duePublishJobs}，失败草稿 ${summary.articlesFailed}`,
+      label: "平台覆盖",
+      value: `${summary.publishPlatformMetrics.length}`,
+      note: `最近失败归因 ${summary.recentFailureGroups.length} 组`,
     },
   ];
 }
@@ -134,8 +135,19 @@ function pickFailureGroups(groups: FailureGroupRecord[]): FailureGroupRecord[] {
   return groups.slice(0, 6);
 }
 
+function pickPlatformMetrics(metrics: PublishPlatformMetricRecord[]): PublishPlatformMetricRecord[] {
+  return metrics.slice(0, 6);
+}
+
 function getFailureTone(group: FailureGroupRecord): "watch" | "calm" {
   if (group.category === "publish") {
+    return "watch";
+  }
+  return "calm";
+}
+
+function getPlatformTone(metric: PublishPlatformMetricRecord): "watch" | "calm" {
+  if (metric.failedJobs > 0 && metric.successRate < 0.5) {
     return "watch";
   }
   return "calm";
@@ -166,10 +178,11 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
   const recentJobs = pickRecentJobs(publishJobsQuery.data ?? []);
   const recentArticles = pickRecentArticles(articlesQuery.data ?? []);
   const failureGroups = pickFailureGroups(summary?.recentFailureGroups ?? []);
+  const platformMetrics = pickPlatformMetrics(summary?.publishPlatformMetrics ?? []);
   const title = mode === "publishing" ? "发布运维面板" : "运营总览面板";
   const lead =
     mode === "publishing"
-      ? "集中查看发布成功率、失败归因、重试建议和最近一次结果回写，确认多平台分发链路是否稳定。"
+      ? "集中查看发布成功率、平台表现、失败归因和重试建议，确认多平台分发链路是否稳定。"
       : "将采集、审核、草稿、发布和失败诊断汇总到同一控制台，快速判断当日 AI 资讯流水线是否健康。";
 
   return (
@@ -296,6 +309,52 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                       ))}
                     </div>
                     <p className="failure-suggestion">{group.suggestion}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </article>
+
+          <article className="panel ops-platform-panel">
+            <header className="section-title">
+              <div>
+                <p>Platform Performance</p>
+                <h2>平台发布表现</h2>
+              </div>
+              <span>{platformMetrics.length} 个平台</span>
+            </header>
+
+            {platformMetrics.length === 0 ? (
+              <div className="empty-state">当前还没有平台级发布数据，先创建并执行发布任务。</div>
+            ) : (
+              <div className="platform-metric-list">
+                {platformMetrics.map((metric) => (
+                  <article key={metric.platform} className="platform-metric-card" data-tone={getPlatformTone(metric)}>
+                    <div className="platform-metric-head">
+                      <strong>{formatPlatform(metric.platform)}</strong>
+                      <span>{Math.round(metric.successRate * 100)}%</span>
+                    </div>
+                    <div className="platform-metric-grid">
+                      <div>
+                        <span>总任务</span>
+                        <strong>{metric.totalJobs}</strong>
+                      </div>
+                      <div>
+                        <span>成功</span>
+                        <strong>{metric.publishedJobs}</strong>
+                      </div>
+                      <div>
+                        <span>失败</span>
+                        <strong>{metric.failedJobs}</strong>
+                      </div>
+                      <div>
+                        <span>排队</span>
+                        <strong>{metric.scheduledJobs}</strong>
+                      </div>
+                    </div>
+                    <p className="platform-metric-note">
+                      {metric.lastError ? `最近错误：${metric.lastError}` : "最近没有失败记录。"}
+                    </p>
                   </article>
                 ))}
               </div>

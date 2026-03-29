@@ -18,6 +18,7 @@ from fetchnews.pipeline.article_service import (
     generate_and_persist_weekly_digest,
     list_article_variants,
     list_articles,
+    resolve_article_sections_for_story_ids,
 )
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.publishing.service import (
@@ -160,7 +161,7 @@ def create_app(
 
     @app.post("/stories", response_model=StoryResponse, status_code=201)
     def create_story(payload: StoryCreatePayload, db: Session = Depends(get_db)) -> StoryResponse:
-        story = Story(status=StoryStatus.PENDING, **payload.model_dump())
+        story = Story(status=StoryStatus.PENDING, **payload.model_dump(exclude={"primary_section", "sections"}))
         db.add(story)
         db.commit()
         db.refresh(story)
@@ -219,7 +220,8 @@ def create_app(
         if article is None:
             raise HTTPException(status_code=404, detail="Article not found")
         variant_count = len(list_article_variants(db, article.id))
-        return article_to_response(article, variant_count)
+        sections = resolve_article_sections_for_story_ids(db, article.story_ids)
+        return article_to_response(article, variant_count, sections=sections)
 
     @app.get("/articles/{article_id}/variants", response_model=list[PostVariantResponse])
     def get_article_variants(article_id: int, db: Session = Depends(get_db)) -> list[PostVariantResponse]:

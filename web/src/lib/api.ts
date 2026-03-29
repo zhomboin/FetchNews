@@ -36,6 +36,8 @@ type ApiStoryRecord = {
   item_count: number;
   first_seen_at: string;
   last_seen_at: string;
+  primary_section: string;
+  sections: string[];
 };
 
 type ApiNormalizedItem = {
@@ -65,6 +67,7 @@ type ApiArticleDraft = {
   body: string;
   story_ids: number[];
   story_keys: string[];
+  sections: string[];
   generation_note: string | null;
   status: string;
   story_count: number;
@@ -113,6 +116,16 @@ type ApiFailureGroup = {
   suggestion: string;
 };
 
+type ApiPublishPlatformMetric = {
+  platform: string;
+  total_jobs: number;
+  scheduled_jobs: number;
+  published_jobs: number;
+  failed_jobs: number;
+  success_rate: number;
+  last_error: string | null;
+};
+
 type ApiOpsSummary = {
   ingest_runs_total: number;
   ingest_runs_failed: number;
@@ -131,6 +144,7 @@ type ApiOpsSummary = {
   publish_success_rate: number;
   due_publish_jobs: number;
   recent_failure_groups: ApiFailureGroup[];
+  publish_platform_metrics: ApiPublishPlatformMetric[];
 };
 
 /**
@@ -202,6 +216,8 @@ export type StoryRecord = {
   itemCount: number;
   firstSeenAt: string;
   lastSeenAt: string;
+  primarySection: string;
+  sections: string[];
 };
 
 /**
@@ -250,6 +266,7 @@ export type ArticleDraftRecord = {
   body: string;
   storyIds: number[];
   storyKeys: string[];
+  sections: string[];
   generationNote: string | null;
   status: string;
   storyCount: number;
@@ -340,6 +357,19 @@ export type FailureGroupRecord = {
 };
 
 /**
+ * Per-platform publishing metrics used by the ops dashboard.
+ */
+export type PublishPlatformMetricRecord = {
+  platform: string;
+  totalJobs: number;
+  scheduledJobs: number;
+  publishedJobs: number;
+  failedJobs: number;
+  successRate: number;
+  lastError: string | null;
+};
+
+/**
  * Aggregated operations metrics used by the real dashboard.
  */
 export type OpsSummaryRecord = {
@@ -360,7 +390,28 @@ export type OpsSummaryRecord = {
   publishSuccessRate: number;
   duePublishJobs: number;
   recentFailureGroups: FailureGroupRecord[];
+  publishPlatformMetrics: PublishPlatformMetricRecord[];
 };
+
+/**
+ * Canonical section labels used across stories and digests.
+ */
+export const SECTION_LABELS: Record<string, string> = {
+  model_release: "模型发布",
+  open_source: "开源项目",
+  research: "论文精选",
+  agents: "Agent 工作流",
+  infrastructure: "基础设施",
+  product_updates: "产品动态",
+  community: "社区热议",
+};
+
+/**
+ * Maps backend section slugs into human-readable labels.
+ */
+export function formatSectionLabel(sectionSlug: string): string {
+  return SECTION_LABELS[sectionSlug] ?? sectionSlug.replace(/_/g, " ");
+}
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
@@ -408,6 +459,8 @@ function mapStoryRecord(apiStory: ApiStoryRecord): StoryRecord {
     itemCount: apiStory.item_count,
     firstSeenAt: apiStory.first_seen_at,
     lastSeenAt: apiStory.last_seen_at,
+    primarySection: apiStory.primary_section,
+    sections: apiStory.sections,
   };
 }
 
@@ -441,6 +494,7 @@ function mapArticleDraft(apiArticle: ApiArticleDraft): ArticleDraftRecord {
     body: apiArticle.body,
     storyIds: apiArticle.story_ids,
     storyKeys: apiArticle.story_keys,
+    sections: apiArticle.sections,
     generationNote: apiArticle.generation_note,
     status: apiArticle.status,
     storyCount: apiArticle.story_count,
@@ -500,6 +554,18 @@ function mapFailureGroup(apiGroup: ApiFailureGroup): FailureGroupRecord {
   };
 }
 
+function mapPublishPlatformMetric(apiMetric: ApiPublishPlatformMetric): PublishPlatformMetricRecord {
+  return {
+    platform: apiMetric.platform,
+    totalJobs: apiMetric.total_jobs,
+    scheduledJobs: apiMetric.scheduled_jobs,
+    publishedJobs: apiMetric.published_jobs,
+    failedJobs: apiMetric.failed_jobs,
+    successRate: apiMetric.success_rate,
+    lastError: apiMetric.last_error,
+  };
+}
+
 function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
   return {
     ingestRunsTotal: apiSummary.ingest_runs_total,
@@ -519,6 +585,7 @@ function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
     publishSuccessRate: apiSummary.publish_success_rate,
     duePublishJobs: apiSummary.due_publish_jobs,
     recentFailureGroups: apiSummary.recent_failure_groups.map(mapFailureGroup),
+    publishPlatformMetrics: apiSummary.publish_platform_metrics.map(mapPublishPlatformMetric),
   };
 }
 

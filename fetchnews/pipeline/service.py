@@ -35,6 +35,7 @@ def run_story_pipeline(session: Session) -> dict[str, int]:
                 metadata=raw_item.payload,
             ),
             source_priority=source.priority,
+            source_config=source.config,
         ).model_copy(update={"raw_item_id": raw_item.id})
         normalized_items.append(normalized)
         _upsert_normalized_item(session, existing_normalized.get(raw_item.id), normalized)

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
-from fetchnews.schemas import FailureGroupResponse, OpsSummaryResponse
+from fetchnews.schemas import FailureGroupResponse, OpsSummaryResponse, PublishPlatformMetricResponse
 
 
 def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSummaryResponse:
@@ -75,6 +74,7 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         publish_success_rate=publish_success_rate,
         due_publish_jobs=due_publish_jobs,
         recent_failure_groups=_build_failure_groups(session),
+        publish_platform_metrics=_build_publish_platform_metrics(session),
     )
 
 
@@ -146,12 +146,57 @@ def _build_failure_groups(session: Session) -> list[FailureGroupResponse]:
     ]
 
 
+def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMetricResponse]:
+    jobs = session.scalars(select(PublishJob).order_by(PublishJob.updated_at.desc(), PublishJob.id.desc())).all()
+    grouped: dict[str, dict[str, object]] = {}
+
+    for job in jobs:
+        entry = grouped.setdefault(
+            job.platform,
+            {
+                "platform": job.platform,
+                "total_jobs": 0,
+                "scheduled_jobs": 0,
+                "published_jobs": 0,
+                "failed_jobs": 0,
+                "last_error": None,
+            },
+        )
+        entry["total_jobs"] = int(entry["total_jobs"]) + 1
+        if job.status == PublishJobStatus.SCHEDULED:
+            entry["scheduled_jobs"] = int(entry["scheduled_jobs"]) + 1
+        elif job.status == PublishJobStatus.PUBLISHED:
+            entry["published_jobs"] = int(entry["published_jobs"]) + 1
+        elif job.status == PublishJobStatus.FAILED:
+            entry["failed_jobs"] = int(entry["failed_jobs"]) + 1
+            if entry["last_error"] is None and job.error_message:
+                entry["last_error"] = job.error_message
+
+    ordered_entries = sorted(grouped.values(), key=lambda entry: (-int(entry["total_jobs"]), str(entry["platform"])))
+    metrics: list[PublishPlatformMetricResponse] = []
+    for entry in ordered_entries:
+        terminal_jobs = int(entry["published_jobs"]) + int(entry["failed_jobs"])
+        success_rate = int(entry["published_jobs"]) / terminal_jobs if terminal_jobs else 0.0
+        metrics.append(
+            PublishPlatformMetricResponse(
+                platform=str(entry["platform"]),
+                total_jobs=int(entry["total_jobs"]),
+                scheduled_jobs=int(entry["scheduled_jobs"]),
+                published_jobs=int(entry["published_jobs"]),
+                failed_jobs=int(entry["failed_jobs"]),
+                success_rate=success_rate,
+                last_error=str(entry["last_error"]) if entry["last_error"] is not None else None,
+            )
+        )
+    return metrics
+
+
 def _suggest_publish_retry(reason: str) -> str:
     lowered = reason.lower()
     if "rate limit" in lowered or "limit" in lowered:
         return "等待平台限流窗口恢复后再重试，并降低单批发布密度。"
     if "rejected" in lowered or "moderation" in lowered:
-        return "检查平台内容策略、账号状态或文案后再执行重试。"
+        return "检查平台内容策略、账号状态或文案后，再执行重试。"
     if "credential" in lowered or "auth" in lowered or "token" in lowered:
         return "先修复平台凭证或授权状态，再重新入队失败任务。"
     return "检查发布日志后执行单任务重试，必要时重新生成对应平台文案。"
@@ -160,9 +205,9 @@ def _suggest_publish_retry(reason: str) -> str:
 def _suggest_ingest_retry(reason: str) -> str:
     lowered = reason.lower()
     if "rate limit" in lowered or "limit" in lowered:
-        return "降低采集频率并等待源站限流恢复，再重新触发采集。"
+        return "降低采集频率并等待来源限流恢复，再重新触发采集。"
     if "timeout" in lowered or "timed out" in lowered:
-        return "检查源站可达性和网络波动，确认恢复后再重试。"
+        return "检查来源可达性和网络波动，确认恢复后再重试。"
     if "parse" in lowered or "schema" in lowered:
         return "检查解析规则或字段映射，修正后重新抓取该来源。"
     return "检查来源配置和连接器日志，确认原因后再执行重试。"

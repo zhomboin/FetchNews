@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from fetchnews.pipeline.sections import infer_sections_from_signals
 
 
 class SourceSpec(BaseModel):
@@ -57,6 +59,26 @@ class StoryCandidate(BaseModel):
     item_count: int
     first_seen_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_seen_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    primary_section: str = "community"
+    sections: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def populate_sections(self) -> "StoryCandidate":
+        primary_section, sections = infer_sections_from_signals(
+            title=self.cluster_title,
+            summary=self.summary,
+            tags=self.tags,
+            source_hints=self.source_links,
+        )
+        if not self.sections:
+            self.sections = sections
+        else:
+            self.sections = list(dict.fromkeys(self.sections))
+        if not self.primary_section or self.primary_section == "community":
+            self.primary_section = primary_section
+        if self.primary_section not in self.sections:
+            self.sections.insert(0, self.primary_section)
+        return self
 
 
 class ArticleDraftPayload(BaseModel):
@@ -67,6 +89,12 @@ class ArticleDraftPayload(BaseModel):
     summary: str
     body: str
     story_keys: list[str]
+    sections: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_sections(self) -> "ArticleDraftPayload":
+        self.sections = list(dict.fromkeys(self.sections))
+        return self
 
 
 class DailyDigest(BaseModel):
@@ -86,6 +114,26 @@ class StoryCreatePayload(BaseModel):
     item_count: int
     first_seen_at: datetime
     last_seen_at: datetime
+    primary_section: str = "community"
+    sections: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def populate_sections(self) -> "StoryCreatePayload":
+        primary_section, sections = infer_sections_from_signals(
+            title=self.cluster_title,
+            summary=self.summary,
+            tags=self.tags,
+            source_hints=self.source_links,
+        )
+        if not self.sections:
+            self.sections = sections
+        else:
+            self.sections = list(dict.fromkeys(self.sections))
+        if not self.primary_section or self.primary_section == "community":
+            self.primary_section = primary_section
+        if self.primary_section not in self.sections:
+            self.sections.insert(0, self.primary_section)
+        return self
 
 
 class StoryResponse(StoryCreatePayload):
@@ -188,6 +236,16 @@ class FailureGroupResponse(BaseModel):
     suggestion: str
 
 
+class PublishPlatformMetricResponse(BaseModel):
+    platform: str
+    total_jobs: int
+    scheduled_jobs: int
+    published_jobs: int
+    failed_jobs: int
+    success_rate: float
+    last_error: str | None = None
+
+
 class OpsSummaryResponse(BaseModel):
     ingest_runs_total: int
     ingest_runs_failed: int
@@ -206,3 +264,4 @@ class OpsSummaryResponse(BaseModel):
     publish_success_rate: float
     due_publish_jobs: int
     recent_failure_groups: list[FailureGroupResponse] = Field(default_factory=list)
+    publish_platform_metrics: list[PublishPlatformMetricResponse] = Field(default_factory=list)

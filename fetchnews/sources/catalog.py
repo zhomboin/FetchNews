@@ -10,7 +10,11 @@ DEFAULT_SOURCE_SPECS = [
         platform="github",
         priority="P0",
         kind="html",
-        config={"url": "https://github.com/trending?since=daily"},
+        config={
+            "url": "https://github.com/trending?since=daily",
+            "trust_score": 5.8,
+            "score_multiplier": 1.05,
+        },
     ),
     SourceSpec(
         slug="arxiv-cs-ai",
@@ -18,7 +22,11 @@ DEFAULT_SOURCE_SPECS = [
         platform="arxiv",
         priority="P0",
         kind="feed",
-        config={"url": "https://export.arxiv.org/rss/cs.AI"},
+        config={
+            "url": "https://export.arxiv.org/rss/cs.AI",
+            "trust_score": 5.2,
+            "score_multiplier": 1.0,
+        },
     ),
     SourceSpec(
         slug="openai-blog",
@@ -26,7 +34,11 @@ DEFAULT_SOURCE_SPECS = [
         platform="blog",
         priority="P0",
         kind="rss",
-        config={"url": "https://openai.com/news/rss.xml"},
+        config={
+            "url": "https://openai.com/news/rss.xml",
+            "trust_score": 7.0,
+            "score_multiplier": 1.1,
+        },
     ),
     SourceSpec(
         slug="x-allowlist",
@@ -34,7 +46,11 @@ DEFAULT_SOURCE_SPECS = [
         platform="x",
         priority="P0",
         kind="api",
-        config={"allowlist": ["OpenAI", "AnthropicAI", "huggingface"]},
+        config={
+            "allowlist": ["OpenAI", "AnthropicAI", "huggingface"],
+            "trust_score": 3.4,
+            "score_multiplier": 0.95,
+        },
     ),
     SourceSpec(
         slug="hf-daily",
@@ -42,7 +58,11 @@ DEFAULT_SOURCE_SPECS = [
         platform="huggingface",
         priority="P1",
         kind="html",
-        config={"url": "https://huggingface.co/papers"},
+        config={
+            "url": "https://huggingface.co/papers",
+            "trust_score": 4.2,
+            "score_multiplier": 0.92,
+        },
     ),
     SourceSpec(
         slug="reddit-ml",
@@ -50,7 +70,13 @@ DEFAULT_SOURCE_SPECS = [
         platform="reddit",
         priority="P2",
         kind="rss",
-        config={"url": "https://www.reddit.com/r/MachineLearning/.rss"},
+        config={
+            "url": "https://www.reddit.com/r/MachineLearning/.rss",
+            "trust_score": 1.2,
+            "score_multiplier": 0.72,
+            "demote_title_keywords": ["discussion", "thread", "hot take"],
+            "blacklist_title_keywords": ["self-promo", "who's hiring", "weekly thread"],
+        },
     ),
 ]
 

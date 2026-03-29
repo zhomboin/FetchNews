@@ -7,6 +7,7 @@ import {
   approveStory,
   fetchNormalizedItems,
   fetchStories,
+  formatSectionLabel,
   rebuildStoriesPipeline,
 } from "../../lib/api";
 
@@ -26,9 +27,11 @@ const STORY_RISK_OPTIONS = [
 ] as const;
 const RISK_FLAG_LABELS: Record<string, string> = {
   secondary_sources_only: "仅次级来源",
+  demoted_source_signal: "来源已降权",
 };
 const RISK_FLAG_DETAILS: Record<string, string> = {
-  secondary_sources_only: "当前聚类尚未关联到 P0 一手来源，进入生成链路前建议人工复核。",
+  secondary_sources_only: "当前聚类还没有覆盖 P0 一手来源，进入生成链路前建议人工复核。",
+  demoted_source_signal: "当前 story 引用了被降权的来源信号，建议优先检查转载和讨论贴。",
 };
 
 type StoriesPageProps = {
@@ -63,10 +66,7 @@ function formatDateTime(value: string): string {
 }
 
 function formatStoryStatus(status: StoryRecord["status"]): string {
-  if (status === "approved") {
-    return "已审核";
-  }
-  return "待审核";
+  return status === "approved" ? "已审核" : "待审核";
 }
 
 function summarizeStories(allStories: StoryRecord[], filteredStories: StoryRecord[]): StoryMetrics {
@@ -80,7 +80,7 @@ function summarizeStories(allStories: StoryRecord[], filteredStories: StoryRecor
 }
 
 function getSourceLabel(item: NormalizedItemRecord): string {
-  return `${item.sourceSlug} 路 ${item.sourcePriority}`;
+  return `${item.sourceSlug} / ${item.sourcePriority}`;
 }
 
 function getRiskFlagLabel(flag: string): string {
@@ -92,38 +92,38 @@ function getRiskPresentation(story: StoryRecord): StoryRiskPresentation {
     return {
       tone: "calm",
       label: "低风险",
-      detail: "当前聚类已包含 P0 来源，可直接进入后续人工审核与生成链路。",
+      detail: "当前聚类已覆盖较强来源，可直接进入人工审核和后续排版。",
     };
   }
 
-  if (story.riskFlags.includes("secondary_sources_only")) {
+  if (story.riskFlags.includes("secondary_sources_only") || story.riskFlags.includes("demoted_source_signal")) {
     return {
       tone: "watch",
       label: "需复核",
-      detail: RISK_FLAG_DETAILS.secondary_sources_only,
+      detail: story.riskFlags.map((flag) => RISK_FLAG_DETAILS[flag]).filter(Boolean).join(" "),
     };
   }
 
   return {
     tone: "alert",
     label: "高关注",
-    detail: "检测到未归类的风险标记，建议人工确认来源和聚类质量。",
+    detail: "检测到未归类的风险标记，建议先检查来源和聚类质量。",
   };
 }
 
-function getTopTags(stories: StoryRecord[]): string[] {
-  const tagCounts = new Map<string, number>();
+function getTopSections(stories: StoryRecord[]): string[] {
+  const sectionCounts = new Map<string, number>();
 
   for (const story of stories) {
-    for (const tag of story.tags) {
-      tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+    for (const section of story.sections) {
+      sectionCounts.set(section, (sectionCounts.get(section) ?? 0) + 1);
     }
   }
 
-  return [...tagCounts.entries()]
+  return [...sectionCounts.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 8)
-    .map(([tag]) => tag);
+    .map(([section]) => section);
 }
 
 function matchesStorySearch(story: StoryRecord, searchValue: string): boolean {
@@ -138,6 +138,7 @@ function matchesStorySearch(story: StoryRecord, searchValue: string): boolean {
     ...story.tags,
     ...story.highlights,
     ...story.riskFlags,
+    ...story.sections,
   ]
     .join(" ")
     .toLowerCase();
@@ -158,14 +159,14 @@ function matchesNormalizedSearch(item: NormalizedItemRecord, searchValue: string
 }
 
 /**
- * Shows clustered stories and the underlying normalized items for Phase 03 verification.
+ * Shows clustered stories and the underlying normalized items for Phase 03 and thematic section verification.
  */
 export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
   const queryClient = useQueryClient();
   const [searchValue, setSearchValue] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<StoryStatusFilter>("all");
   const [riskFilter, setRiskFilter] = React.useState<StoryRiskFilter>("all");
-  const [tagFilter, setTagFilter] = React.useState<string>("all");
+  const [sectionFilter, setSectionFilter] = React.useState<string>("all");
 
   const storiesQuery = useQuery({
     queryKey: STORIES_QUERY_KEY,
@@ -193,7 +194,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
 
   const stories = storiesQuery.data ?? [];
   const normalizedItems = normalizedItemsQuery.data ?? [];
-  const topTags = getTopTags(stories);
+  const topSections = getTopSections(stories);
   const filteredStories = [...stories]
     .filter((story) => (statusFilter === "all" ? true : story.status === statusFilter))
     .filter((story) => {
@@ -205,7 +206,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
       }
       return story.riskFlags.length === 0;
     })
-    .filter((story) => (tagFilter === "all" ? true : story.tags.includes(tagFilter)))
+    .filter((story) => (sectionFilter === "all" ? true : story.sections.includes(sectionFilter)))
     .filter((story) => matchesStorySearch(story, searchValue))
     .sort((left, right) => {
       if (left.score !== right.score) {
@@ -214,7 +215,11 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
       return new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime();
     });
   const filteredNormalizedItems = normalizedItems
-    .filter((item) => (tagFilter === "all" ? true : item.tags.includes(tagFilter) || item.keywords.includes(tagFilter)))
+    .filter((item) =>
+      sectionFilter === "all"
+        ? true
+        : item.tags.includes(sectionFilter) || item.keywords.includes(sectionFilter),
+    )
     .filter((item) => matchesNormalizedSearch(item, searchValue));
   const metrics = summarizeStories(stories, filteredStories);
   const cleanStories = filteredStories.length - metrics.flaggedStories;
@@ -224,9 +229,9 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Story Clustering</p>
-          <h1>标准化与聚类检查</h1>
+          <h1>标准化与栏目检查</h1>
           <p className="lede">
-            在这一页同时检查 stories、风险标记和 normalized items，确认 URL 清洗、标题标准化与多源聚合是否符合预期。
+            在这一页同时检查 stories、主题栏目、风险标记和 normalized items，确认聚类结果是否适合进入日报、周报与月报生成链路。
           </p>
         </div>
 
@@ -246,7 +251,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <article className="metric-cell">
           <p>Stories</p>
           <strong>{metrics.filteredStories}</strong>
-          <span>当前筛选结果，共 {metrics.totalStories} 条 story</span>
+          <span>当前筛选结果，全部 {metrics.totalStories} 条 story</span>
         </article>
         <article className="metric-cell">
           <p>已审核</p>
@@ -256,12 +261,12 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <article className="metric-cell">
           <p>聚合条目</p>
           <strong>{metrics.totalStoryItems}</strong>
-          <span>筛选后的 story 共包含 {metrics.totalStoryItems} 条来源</span>
+          <span>当前 story 覆盖的原始来源总数</span>
         </article>
         <article className="metric-cell">
           <p>需复核</p>
           <strong>{metrics.flaggedStories}</strong>
-          <span>存在风险标记的 story，需要优先检查</span>
+          <span>存在风险标记的 story，建议优先复核</span>
         </article>
       </section>
 
@@ -269,7 +274,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <header className="section-title ingestion-head">
           <div>
             <p>Pipeline Controls</p>
-            <h2>筛选、重建与风险总览</h2>
+            <h2>筛选、重建与栏目总览</h2>
           </div>
           <span>{storiesQuery.isFetching || normalizedItemsQuery.isFetching ? "正在刷新" : "30 秒自动刷新"}</span>
         </header>
@@ -281,7 +286,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
-              placeholder="按标题、摘要、标签、亮点或风险标记筛选"
+              placeholder="按标题、摘要、栏目、标签、亮点或风险标记筛选"
             />
           </label>
 
@@ -323,19 +328,19 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <div className="tag-filter-row">
           <button
             type="button"
-            className={`filter-chip ${tagFilter === "all" ? "active" : ""}`}
-            onClick={() => setTagFilter("all")}
+            className={`filter-chip ${sectionFilter === "all" ? "active" : ""}`}
+            onClick={() => setSectionFilter("all")}
           >
-            全部主题
+            全部栏目
           </button>
-          {topTags.map((tag) => (
+          {topSections.map((section) => (
             <button
-              key={tag}
+              key={section}
               type="button"
-              className={`filter-chip ${tagFilter === tag ? "active" : ""}`}
-              onClick={() => setTagFilter(tag)}
+              className={`filter-chip ${sectionFilter === section ? "active" : ""}`}
+              onClick={() => setSectionFilter(section)}
             >
-              #{tag}
+              {formatSectionLabel(section)}
             </button>
           ))}
         </div>
@@ -344,16 +349,16 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
           <article className="risk-stat" data-tone="watch">
             <p>需复核 story</p>
             <strong>{metrics.flaggedStories}</strong>
-            <span>当前筛选结果中有风险标记，需要先看来源质量。</span>
+            <span>当前筛选结果里存在风险标记，建议先看来源质量。</span>
           </article>
           <article className="risk-stat" data-tone="calm">
             <p>低风险 story</p>
             <strong>{cleanStories}</strong>
-            <span>已覆盖 P0 来源，可直接进入人工审核与排序。</span>
+            <span>已覆盖较强来源，可直接进入人工审核和排版。</span>
           </article>
           <article className="risk-stat" data-tone="default">
-            <p>当前主题</p>
-            <strong>{tagFilter === "all" ? "全部主题" : `#${tagFilter}`}</strong>
+            <p>当前栏目</p>
+            <strong>{sectionFilter === "all" ? "全部栏目" : formatSectionLabel(sectionFilter)}</strong>
             <span>{searchValue === "" ? "未启用关键词检索" : `检索词：${searchValue}`}</span>
           </article>
         </div>
@@ -374,7 +379,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
               setSearchValue("");
               setStatusFilter("all");
               setRiskFilter("all");
-              setTagFilter("all");
+              setSectionFilter("all");
             }}
           >
             清空筛选
@@ -425,6 +430,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
                         <div className="story-topline">
                           <p className="story-kicker">{story.storyKey}</p>
                           <span className={`status-pill status-${story.status}`}>{formatStoryStatus(story.status)}</span>
+                          <span className="section-badge">{formatSectionLabel(story.primarySection)}</span>
                         </div>
                         <h3>{story.clusterTitle}</h3>
                       </div>
@@ -448,7 +454,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
                             </span>
                           ))
                         ) : (
-                          <span className="source-chip">P0 已覆盖</span>
+                          <span className="source-chip">低风险</span>
                         )}
                       </div>
                     </div>
@@ -460,7 +466,15 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
                       <span>
                         {formatDateTime(story.firstSeenAt)} - {formatDateTime(story.lastSeenAt)}
                       </span>
-                      <span>{story.tags.slice(0, 3).join(" / ") || "未打标签"}</span>
+                      <span>{story.sections.map(formatSectionLabel).join(" / ")}</span>
+                    </div>
+
+                    <div className="pill-list section-pill-list">
+                      {story.sections.map((section) => (
+                        <span key={`${story.storyKey}-${section}`} className="section-badge section-badge-soft">
+                          {formatSectionLabel(section)}
+                        </span>
+                      ))}
                     </div>
 
                     <div className="pill-list">
@@ -488,7 +502,9 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
                     </div>
 
                     <div className="story-actions">
-                      <span>{story.status === "approved" ? "该 story 已完成人工确认。" : "确认后可进入后续日报生成链路。"}</span>
+                      <span>
+                        {story.status === "approved" ? "该 story 已完成人工确认。" : "确认后可进入后续日报、周报与月报生成链路。"}
+                      </span>
                       <button
                         type="button"
                         className="button-secondary"

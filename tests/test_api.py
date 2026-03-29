@@ -603,3 +603,69 @@ def test_generate_weekly_and_monthly_digests_can_coexist_with_daily() -> None:
         articles_payload = articles_response.json()
         assert len(articles_payload) == 3
         assert {article["period_type"] for article in articles_payload} == {"daily", "weekly", "monthly"}
+def test_ops_summary_includes_publish_platform_metrics() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_platform_metrics.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-platform-1",
+                cluster_title="Platform metrics need per-channel visibility",
+                summary="Publishing results should be grouped by platform.",
+                score=8.8,
+                tags=["publishing", "ops"],
+                source_links=["https://example.com/platform-metrics"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-01"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat", "x", "telegram"], "scheduled_for": "2026-05-01T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs = publish_response.json()["jobs"]
+        jobs_by_platform = {job["platform"]: job["id"] for job in jobs}
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/result",
+            json={"status": "published", "external_id": "wx-platform-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/result",
+            json={"status": "published", "external_id": "tg-platform-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/result",
+            json={"status": "failed", "error_message": "platform rejected"},
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        platform_metrics = {
+            metric["platform"]: metric for metric in summary_response.json()["publish_platform_metrics"]
+        }
+
+        assert platform_metrics["wechat"]["total_jobs"] == 1
+        assert platform_metrics["wechat"]["published_jobs"] == 1
+        assert platform_metrics["wechat"]["success_rate"] == 1.0
+        assert platform_metrics["telegram"]["published_jobs"] == 1
+        assert platform_metrics["x"]["failed_jobs"] == 1
+        assert platform_metrics["x"]["success_rate"] == 0.0
+        assert platform_metrics["x"]["last_error"] == "platform rejected"

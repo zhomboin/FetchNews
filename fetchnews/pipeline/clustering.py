@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha1
 
+from fetchnews.pipeline.sections import infer_sections_from_signals
 from fetchnews.schemas import NormalizedItem, StoryCandidate
 
 
@@ -10,9 +11,10 @@ PRIORITY_SCORES = {"P0": 8.0, "P1": 5.0, "P2": 2.0}
 
 
 def cluster_items(items: list[NormalizedItem]) -> list[StoryCandidate]:
+    eligible_items = [item for item in items if not _is_blocked_item(item)]
     clusters: list[list[NormalizedItem]] = []
 
-    for item in sorted(items, key=lambda current: (current.published_at, current.canonical_url)):
+    for item in sorted(eligible_items, key=lambda current: (current.published_at, current.canonical_url)):
         cluster = _find_cluster(item, clusters)
         if cluster is None:
             clusters.append([item])
@@ -55,6 +57,13 @@ def _build_story_candidate(cluster: list[NormalizedItem]) -> StoryCandidate:
     representative = sorted_items[0]
     unique_sources = sorted({item.source_slug for item in sorted_items})
     unique_links = sorted({item.canonical_url for item in sorted_items})
+    primary_section, sections = infer_sections_from_signals(
+        title=representative.title,
+        summary=representative.summary,
+        tags=_merge_tags(sorted_items),
+        keywords=representative.keywords,
+        source_hints=[representative.source_slug, *unique_links],
+    )
     merged_tags = _merge_tags(sorted_items)
     risk_flags = _build_risk_flags(sorted_items)
     highlights = [f"聚合 {len(sorted_items)} 条相关来源"]
@@ -76,6 +85,8 @@ def _build_story_candidate(cluster: list[NormalizedItem]) -> StoryCandidate:
         item_count=len(sorted_items),
         first_seen_at=sorted_items[0].published_at,
         last_seen_at=sorted_items[-1].published_at,
+        primary_section=primary_section,
+        sections=sections,
     )
 
 
@@ -89,10 +100,13 @@ def _merge_tags(items: list[NormalizedItem]) -> list[str]:
 
 
 def _build_risk_flags(items: list[NormalizedItem]) -> list[str]:
+    flags: list[str] = []
     priorities = {item.source_priority for item in items}
     if "P0" not in priorities:
-        return ["secondary_sources_only"]
-    return []
+        flags.append("secondary_sources_only")
+    if any(_is_demoted_item(item) for item in items):
+        flags.append("demoted_source_signal")
+    return flags
 
 
 def _score_story(items: list[NormalizedItem]) -> float:
@@ -101,17 +115,23 @@ def _score_story(items: list[NormalizedItem]) -> float:
     now = datetime.now(UTC)
     hours_since_latest = max((now - latest_seen).total_seconds() / 3600, 0)
 
-    priority_score = sum(PRIORITY_SCORES.get(item.source_priority, 1.0) for item in unique_sources)
-    trust_score = sum(_source_trust_score(item.source_slug) for item in unique_sources)
+    priority_score = sum(PRIORITY_SCORES.get(item.source_priority, 1.0) * _source_score_multiplier(item) for item in unique_sources)
+    trust_score = sum(_source_trust_score(item) * _source_score_multiplier(item) for item in unique_sources)
     volume_score = min(len(items), 4) * 1.5
     freshness_score = max(0.0, 10.0 - min(hours_since_latest, 72.0) / 8.0)
     diversity_bonus = min(len(list(unique_sources)), 3) * 1.2
+    demotion_penalty = sum(2.5 for item in unique_sources if _is_demoted_item(item))
     secondary_penalty = 5.0 if all(item.source_priority != "P0" for item in unique_sources) else 0.0
 
-    return round(priority_score + trust_score + volume_score + freshness_score + diversity_bonus - secondary_penalty, 2)
+    return round(priority_score + trust_score + volume_score + freshness_score + diversity_bonus - demotion_penalty - secondary_penalty, 2)
 
 
-def _source_trust_score(source_slug: str) -> float:
+def _source_trust_score(item: NormalizedItem) -> float:
+    metadata_value = item.metadata.get("source_trust_score")
+    if isinstance(metadata_value, (int, float)):
+        return float(metadata_value)
+
+    source_slug = item.source_slug
     if source_slug.endswith("-blog"):
         return 6.5
     if source_slug.startswith("github"):
@@ -125,3 +145,21 @@ def _source_trust_score(source_slug: str) -> float:
     if source_slug.startswith("reddit"):
         return 1.0
     return 1.5
+
+
+def _source_score_multiplier(item: NormalizedItem) -> float:
+    metadata_value = item.metadata.get("source_score_multiplier")
+    if isinstance(metadata_value, (int, float)):
+        return max(float(metadata_value), 0.0)
+    return 1.0
+
+
+def _is_blocked_item(item: NormalizedItem) -> bool:
+    return bool(item.metadata.get("source_blocked"))
+
+
+def _is_demoted_item(item: NormalizedItem) -> bool:
+    quality_flags = item.metadata.get("source_quality_flags")
+    if not isinstance(quality_flags, list):
+        return False
+    return "demoted_match" in {str(flag) for flag in quality_flags}

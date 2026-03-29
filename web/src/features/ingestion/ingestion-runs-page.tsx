@@ -45,8 +45,57 @@ function getDefaultP0Selection(sources: SourceSpec[]): string[] {
   return sources.filter((source) => source.priority === "P0").map((source) => source.slug);
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item));
+}
+
+function getGovernanceTone(source: SourceSpec): "watch" | "calm" {
+  const multiplier = asNumber(source.config.score_multiplier) ?? 1;
+  if (source.priority === "P2" || multiplier < 0.85) {
+    return "watch";
+  }
+  return "calm";
+}
+
+function formatGovernanceSummary(source: SourceSpec): string {
+  const trustScore = asNumber(source.config.trust_score);
+  const scoreMultiplier = asNumber(source.config.score_multiplier);
+  const blacklistRules = asStringArray(source.config.blacklist_title_keywords);
+  const demotionRules = asStringArray(source.config.demote_title_keywords);
+  const parts: string[] = [];
+
+  if (trustScore !== null) {
+    parts.push(`信任分 ${trustScore.toFixed(1)}`);
+  }
+  if (scoreMultiplier !== null) {
+    parts.push(`排序倍率 ${scoreMultiplier.toFixed(2)}x`);
+  }
+  if (blacklistRules.length > 0) {
+    parts.push(`黑名单规则 ${blacklistRules.length} 条`);
+  }
+  if (demotionRules.length > 0) {
+    parts.push(`降权规则 ${demotionRules.length} 条`);
+  }
+
+  return parts.join(" · ");
+}
+
 /**
- * Shows recent ingestion runs and lets operators manually trigger a new batch.
+ * Shows recent ingestion runs, source governance, and manual trigger controls.
  */
 export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -99,7 +148,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
           <p className="eyebrow">Ingestion Ledger</p>
           <h1>采集运行</h1>
           <p className="lede">
-            查看最近的来源抓取批次、来源覆盖、失败情况和入库结果。当前页面也支持直接触发一次手动采集。
+            查看最近的来源抓取批次、来源治理规则、覆盖范围和失败原因，并从当前控制台直接触发一次手动采集。
           </p>
         </div>
 
@@ -129,12 +178,12 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
         <article className="metric-cell">
           <p>入库条目</p>
           <strong>{metrics.totalItems}</strong>
-          <span>原始事件累计写入数</span>
+          <span>原始事件累计写入量</span>
         </article>
         <article className="metric-cell">
           <p>来源处理</p>
           <strong>{metrics.totalSources}</strong>
-          <span>批次中执行过的来源数</span>
+          <span>这些批次中执行过的来源总数</span>
         </article>
       </section>
 
@@ -148,7 +197,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
         </header>
 
         {sourcesQuery.isLoading ? <div className="empty-state">正在加载来源目录...</div> : null}
-        {sourcesQuery.isError ? <div className="empty-state">来源目录加载失败，请确认 `/sources` 接口可用。</div> : null}
+        {sourcesQuery.isError ? <div className="empty-state">来源目录加载失败，请确认 /sources 接口可用。</div> : null}
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
           <div className="trigger-layout">
@@ -191,6 +240,33 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
               {triggerMutation.isSuccess ? <strong>已创建采集批次 #{triggerMutation.data.id}</strong> : null}
               {triggerMutation.isError ? <strong>触发失败，请稍后重试。</strong> : null}
             </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel source-governance-panel">
+        <header className="section-title ingestion-head">
+          <div>
+            <p>Source Governance</p>
+            <h2>来源治理策略</h2>
+          </div>
+          <span>{sourceSpecs.length} 个来源</span>
+        </header>
+
+        {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
+          <div className="source-governance-grid">
+            {sourceSpecs.map((source) => (
+              <article key={`governance-${source.slug}`} className="source-governance-card" data-tone={getGovernanceTone(source)}>
+                <div className="source-governance-head">
+                  <div>
+                    <p>{source.platform}</p>
+                    <strong>{source.label}</strong>
+                  </div>
+                  <span className="source-chip">{source.priority}</span>
+                </div>
+                <span className="source-governance-note">{formatGovernanceSummary(source) || "当前未设置额外治理规则。"}</span>
+              </article>
+            ))}
           </div>
         ) : null}
       </section>

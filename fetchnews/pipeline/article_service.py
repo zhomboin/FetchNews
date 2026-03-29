@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, Story, StoryStatus
-from fetchnews.pipeline.generation import generate_daily_digest, generate_digest
+from fetchnews.pipeline.generation import generate_digest, group_stories_by_section, resolve_article_sections
 from fetchnews.schemas import ArticleDraftResponse, PostVariantResponse, StoryCandidate
 
 
@@ -63,10 +63,11 @@ def generate_and_persist_digest(
     generation_note: str | None = None,
 ) -> ArticleDraftResponse:
     approved_stories = _load_approved_stories(session, story_ids)
+    story_candidates = [_story_to_candidate(story) for story in approved_stories]
     digest = generate_digest(
         target_date=target_date,
         period_type=period_type,
-        stories=[_story_to_candidate(story) for story in approved_stories],
+        stories=story_candidates,
         generation_note=generation_note,
     )
 
@@ -108,13 +109,17 @@ def generate_and_persist_digest(
     session.flush()
     session.refresh(article)
     variants = list_article_variants(session, article.id)
-    return article_to_response(article, len(variants))
+    return article_to_response(article, len(variants), sections=digest.article.sections)
 
 
 def list_articles(session: Session) -> list[ArticleDraftResponse]:
     articles = session.scalars(select(ArticleDraft).order_by(ArticleDraft.target_date.desc(), ArticleDraft.id.desc())).all()
     variant_counts = _variant_count_by_article(session)
-    return [article_to_response(article, variant_counts.get(article.id, 0)) for article in articles]
+    article_sections = _build_article_sections_lookup(session, articles)
+    return [
+        article_to_response(article, variant_counts.get(article.id, 0), sections=article_sections.get(article.id, []))
+        for article in articles
+    ]
 
 
 def list_article_variants(session: Session, article_id: int) -> list[PostVariantResponse]:
@@ -124,7 +129,7 @@ def list_article_variants(session: Session, article_id: int) -> list[PostVariant
     return [variant_to_response(variant) for variant in variants]
 
 
-def article_to_response(article: ArticleDraft, variant_count: int) -> ArticleDraftResponse:
+def article_to_response(article: ArticleDraft, variant_count: int, *, sections: list[str] | None = None) -> ArticleDraftResponse:
     return ArticleDraftResponse(
         id=article.id,
         period_type=article.period_type,
@@ -140,6 +145,7 @@ def article_to_response(article: ArticleDraft, variant_count: int) -> ArticleDra
         variant_count=variant_count,
         created_at=article.created_at,
         updated_at=article.updated_at,
+        sections=sections or [],
     )
 
 
@@ -202,3 +208,28 @@ def _variant_count_by_article(session: Session) -> dict[int, int]:
     for variant in variants:
         counts[variant.article_id] = counts.get(variant.article_id, 0) + 1
     return counts
+
+
+def _build_article_sections_lookup(session: Session, articles: list[ArticleDraft]) -> dict[int, list[str]]:
+    if not articles:
+        return {}
+
+    story_ids = sorted({story_id for article in articles for story_id in article.story_ids})
+    if not story_ids:
+        return {article.id: [] for article in articles}
+
+    stories = session.scalars(select(Story).where(Story.id.in_(story_ids))).all()
+    story_candidates = {story.id: _story_to_candidate(story) for story in stories}
+    lookup: dict[int, list[str]] = {}
+    for article in articles:
+        candidates = [story_candidates[story_id] for story_id in article.story_ids if story_id in story_candidates]
+        lookup[article.id] = resolve_article_sections(candidates, group_stories_by_section(candidates))
+    return lookup
+
+def resolve_article_sections_for_story_ids(session: Session, story_ids: list[int]) -> list[str]:
+    if not story_ids:
+        return []
+
+    stories = session.scalars(select(Story).where(Story.id.in_(story_ids))).all()
+    candidates = [_story_to_candidate(story) for story in stories]
+    return resolve_article_sections(candidates, group_stories_by_section(candidates))
