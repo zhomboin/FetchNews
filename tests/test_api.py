@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -325,3 +325,70 @@ def test_pipeline_debug_endpoints_expose_normalized_items_and_rebuild() -> None:
         approve_response = client.post(f"/stories/{story_id}/approve")
         assert approve_response.status_code == 200
         assert approve_response.json()["status"] == StoryStatus.APPROVED
+
+
+def test_publish_dispatch_and_poll_complete_jobs() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase05_executor.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase05-executor-1",
+                cluster_title="OpenAI ships an async publish flow",
+                summary="Async publishing is now wired through the review console.",
+                score=9.0,
+                tags=["publishing"],
+                source_links=["https://openai.com/blog/publish-flow"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-03-30"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        dispatch_response = client.post("/publish-jobs/dispatch-due")
+        assert dispatch_response.status_code == 200
+        assert dispatch_response.json()["jobs_dispatched"] == 1
+
+        jobs_after_dispatch = client.get("/publish-jobs")
+        assert jobs_after_dispatch.status_code == 200
+        dispatched_job = next(job for job in jobs_after_dispatch.json() if job["id"] == job_id)
+        assert dispatched_job["status"] == "scheduled"
+        assert dispatched_job["provider_job_id"] is not None
+        assert dispatched_job["external_id"] is None
+
+        poll_response = client.post("/publish-jobs/poll")
+        assert poll_response.status_code == 200
+        assert poll_response.json()["jobs_polled"] == 1
+        assert poll_response.json()["jobs_completed"] == 1
+
+        final_jobs = client.get("/publish-jobs")
+        assert final_jobs.status_code == 200
+        final_job = next(job for job in final_jobs.json() if job["id"] == job_id)
+        assert final_job["status"] == "published"
+        assert final_job["external_id"] is not None
+
+        article_detail = client.get(f"/articles/{article_id}")
+        assert article_detail.status_code == 200
+        assert article_detail.json()["status"] == "published"

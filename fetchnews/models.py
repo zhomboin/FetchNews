@@ -183,6 +183,8 @@ class PublishJob(Base):
     retries: Mapped[int] = mapped_column(Integer, default=0)
     external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_job_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    provider_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

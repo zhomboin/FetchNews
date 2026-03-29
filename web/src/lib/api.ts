@@ -89,7 +89,19 @@ type ApiPublishJob = {
   retries: number;
   external_id: string | null;
   error_message: string | null;
+  provider_job_id: string | null;
   updated_at: string;
+};
+
+type ApiPublishDispatchResult = {
+  jobs_dispatched: number;
+  jobs_failed: number;
+};
+
+type ApiPublishPollResult = {
+  jobs_polled: number;
+  jobs_completed: number;
+  jobs_failed: number;
 };
 
 /**
@@ -243,6 +255,7 @@ export type PublishJobRecord = {
   retries: number;
   externalId: string | null;
   errorMessage: string | null;
+  providerJobId: string | null;
   updatedAt: string;
 };
 
@@ -261,6 +274,23 @@ export type PublishJobResultPayload = {
   status: "published" | "failed";
   externalId?: string;
   errorMessage?: string;
+};
+
+/**
+ * Summary returned by the due publish dispatcher.
+ */
+export type PublishDispatchResult = {
+  jobsDispatched: number;
+  jobsFailed: number;
+};
+
+/**
+ * Summary returned by the publish polling endpoint.
+ */
+export type PublishPollResult = {
+  jobsPolled: number;
+  jobsCompleted: number;
+  jobsFailed: number;
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -370,7 +400,23 @@ function mapPublishJob(apiJob: ApiPublishJob): PublishJobRecord {
     retries: apiJob.retries,
     externalId: apiJob.external_id,
     errorMessage: apiJob.error_message,
+    providerJobId: apiJob.provider_job_id,
     updatedAt: apiJob.updated_at,
+  };
+}
+
+function mapPublishDispatchResult(apiResult: ApiPublishDispatchResult): PublishDispatchResult {
+  return {
+    jobsDispatched: apiResult.jobs_dispatched,
+    jobsFailed: apiResult.jobs_failed,
+  };
+}
+
+function mapPublishPollResult(apiResult: ApiPublishPollResult): PublishPollResult {
+  return {
+    jobsPolled: apiResult.jobs_polled,
+    jobsCompleted: apiResult.jobs_completed,
+    jobsFailed: apiResult.jobs_failed,
   };
 }
 
@@ -540,4 +586,24 @@ export async function retryPublishJob(jobId: number): Promise<PublishJobRecord> 
     method: "POST",
   });
   return mapPublishJob(apiJob);
+}
+
+/**
+ * Dispatches all due jobs to the configured publisher connectors.
+ */
+export async function dispatchDuePublishJobs(): Promise<PublishDispatchResult> {
+  const apiResult = await requestJson<ApiPublishDispatchResult>("/publish-jobs/dispatch-due", {
+    method: "POST",
+  });
+  return mapPublishDispatchResult(apiResult);
+}
+
+/**
+ * Polls scheduled jobs that already have a provider job id and writes back terminal results.
+ */
+export async function pollPublishJobs(): Promise<PublishPollResult> {
+  const apiResult = await requestJson<ApiPublishPollResult>("/publish-jobs/poll", {
+    method: "POST",
+  });
+  return mapPublishPollResult(apiResult);
 }

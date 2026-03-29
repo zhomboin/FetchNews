@@ -4,13 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArticleDraftRecord,
   PostVariantRecord,
+  PublishDispatchResult,
   PublishJobRecord,
+  PublishPollResult,
   StoryRecord,
+  dispatchDuePublishJobs,
   fetchArticleDrafts,
   fetchArticleVariants,
   fetchPublishJobs,
   fetchStories,
   generateDailyArticle,
+  pollPublishJobs,
   publishArticle,
   retryPublishJob,
   writePublishJobResult,
@@ -145,7 +149,7 @@ function toUtcIsoString(value: string): string | null {
 }
 
 /**
- * Phase 04/05 draft center for digest generation, review, publish writeback, and retry handling.
+ * Phase 04/05 draft center for digest generation, review, publish execution, and retry handling.
  */
 export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -205,6 +209,20 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
         scheduledFor: scheduledIso,
       });
     },
+    onSuccess: () => {
+      invalidateArticleWorkspace();
+    },
+  });
+
+  const dispatchMutation = useMutation({
+    mutationFn: (): Promise<PublishDispatchResult> => dispatchDuePublishJobs(),
+    onSuccess: () => {
+      invalidateArticleWorkspace();
+    },
+  });
+
+  const pollMutation = useMutation({
+    mutationFn: (): Promise<PublishPollResult> => pollPublishJobs(),
     onSuccess: () => {
       invalidateArticleWorkspace();
     },
@@ -294,7 +312,11 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     toUtcIsoString(scheduledFor) !== null &&
     hasAllSelectedVariants;
   const isJobActionPending =
-    markPublishedMutation.isPending || markFailedMutation.isPending || retryMutation.isPending;
+    dispatchMutation.isPending ||
+    pollMutation.isPending ||
+    markPublishedMutation.isPending ||
+    markFailedMutation.isPending ||
+    retryMutation.isPending;
 
   function toggleSelectedStory(storyId: number): void {
     setSelectedStoryIds((current) =>
@@ -361,7 +383,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
           <p className="eyebrow">Daily Digest Studio</p>
           <h1>日报草稿中心</h1>
           <p className="lede">
-            基于已审核 stories 控制日报生成范围与说明，并在同一工作台完成发布前审核、结果回写、失败重试和状态追踪。
+            基于已审核 stories 控制日报生成范围与说明，并在同一工作台完成发布前审核、真实执行、结果轮询、失败重试和状态追踪。
           </p>
         </div>
 
@@ -681,7 +703,23 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                   </label>
                 </div>
 
-                <div className="action-row">
+                <div className="action-row publish-orchestration-row">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => dispatchMutation.mutate()}
+                    disabled={articlePublishJobs.length === 0 || dispatchMutation.isPending}
+                  >
+                    {dispatchMutation.isPending ? "提交中..." : "执行到期发布"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => pollMutation.mutate()}
+                    disabled={articlePublishJobs.length === 0 || pollMutation.isPending}
+                  >
+                    {pollMutation.isPending ? "轮询中..." : "轮询发布结果"}
+                  </button>
                   <button
                     type="button"
                     className="button-primary"
@@ -697,9 +735,15 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                 </div>
 
                 <div className="action-status">
-                  <span>先在本页确认正文、平台短帖和发布时间，再创建发布任务。</span>
+                  <span>先在本页确认正文、平台短帖和发布时间，再创建发布任务并执行发布链路。</span>
                   {publishMutation.isSuccess ? <strong>已写入 {publishMutation.data.length} 条发布任务。</strong> : null}
                   {publishMutation.isError ? <strong>发布任务创建失败，请检查时间和平台选择。</strong> : null}
+                  {dispatchMutation.isSuccess ? (
+                    <strong>已提交 {dispatchMutation.data.jobsDispatched} 条到期任务，失败 {dispatchMutation.data.jobsFailed} 条。</strong>
+                  ) : null}
+                  {pollMutation.isSuccess ? (
+                    <strong>已轮询 {pollMutation.data.jobsPolled} 条任务，完成 {pollMutation.data.jobsCompleted} 条。</strong>
+                  ) : null}
                   {markPublishedMutation.isSuccess ? <strong>发布成功结果已回写。</strong> : null}
                   {markFailedMutation.isSuccess ? <strong>失败结果已回写，可直接重试。</strong> : null}
                   {retryMutation.isSuccess ? <strong>失败任务已重新入队。</strong> : null}
@@ -724,6 +768,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
 
                         <div className="publish-job-note-stack">
                           <span className="publish-job-note">最近更新：{formatDateTime(job.updatedAt)}</span>
+                          {job.providerJobId ? <span className="publish-job-note">Provider Job：{job.providerJobId}</span> : null}
                           {job.externalId ? <span className="publish-job-note">外部 ID：{job.externalId}</span> : null}
                           {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                         </div>

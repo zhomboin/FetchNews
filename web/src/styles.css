@@ -1662,3 +1662,7 @@ a {
     justify-content: flex-start;
   }
 }
+.publish-orchestration-row .button-secondary,
+.publish-orchestration-row .button-primary {
+  min-width: 132px;
+}

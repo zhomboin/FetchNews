@@ -6,6 +6,7 @@ from celery import Celery
 
 from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
+from fetchnews.publishing.service import build_default_publisher_registry, dispatch_due_publish_jobs, poll_publish_jobs
 from fetchnews.settings import Settings
 from fetchnews.sources.connectors import build_default_connector_registry
 from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
@@ -16,7 +17,15 @@ celery_app.conf.beat_schedule = {
     "ingest-default-sources": {
         "task": "fetchnews.ingest.run",
         "schedule": settings.ingest_interval_seconds,
-    }
+    },
+    "publish-dispatch-due": {
+        "task": "fetchnews.publish.dispatch_due",
+        "schedule": settings.publish_interval_seconds,
+    },
+    "publish-poll-results": {
+        "task": "fetchnews.publish.poll",
+        "schedule": settings.publish_interval_seconds,
+    },
 }
 
 
@@ -44,6 +53,46 @@ def run_ingestion_job(
         return ingest_run_to_response(run).model_dump(mode="json")
 
 
+def run_dispatch_due_publish_jobs(
+    settings: Settings | None = None,
+    publisher_overrides: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    resolved_settings = settings or Settings()
+    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
+    if resolved_settings.environment == "test":
+        Base.metadata.drop_all(bind=engine)
+    init_database(engine)
+
+    publisher_registry = build_default_publisher_registry(resolved_settings)
+    if publisher_overrides:
+        publisher_registry.update(publisher_overrides)
+
+    with session_scope(session_factory) as session:
+        result = dispatch_due_publish_jobs(session, publisher_registry)
+        session.commit()
+        return result.model_dump(mode="json")
+
+
+def run_poll_publish_jobs(
+    settings: Settings | None = None,
+    publisher_overrides: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    resolved_settings = settings or Settings()
+    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
+    if resolved_settings.environment == "test":
+        Base.metadata.drop_all(bind=engine)
+    init_database(engine)
+
+    publisher_registry = build_default_publisher_registry(resolved_settings)
+    if publisher_overrides:
+        publisher_registry.update(publisher_overrides)
+
+    with session_scope(session_factory) as session:
+        result = poll_publish_jobs(session, publisher_registry)
+        session.commit()
+        return result.model_dump(mode="json")
+
+
 @celery_app.task(name="fetchnews.healthcheck")
 def healthcheck() -> str:
     return "ok"
@@ -52,3 +101,13 @@ def healthcheck() -> str:
 @celery_app.task(name="fetchnews.ingest.run")
 def run_ingestion_task(source_slugs: list[str] | None = None) -> dict[str, object]:
     return run_ingestion_job(source_slugs=source_slugs)
+
+
+@celery_app.task(name="fetchnews.publish.dispatch_due")
+def dispatch_due_publish_task() -> dict[str, int]:
+    return run_dispatch_due_publish_jobs()
+
+
+@celery_app.task(name="fetchnews.publish.poll")
+def poll_publish_task() -> dict[str, int]:
+    return run_poll_publish_jobs()

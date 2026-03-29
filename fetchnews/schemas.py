@@ -164,4 +164,16 @@ class PublishJobResponse(BaseModel):
     retries: int
     external_id: str | None = None
     error_message: str | None = None
+    provider_job_id: str | None = None
     updated_at: datetime
+
+
+class PublishDispatchResponse(BaseModel):
+    jobs_dispatched: int
+    jobs_failed: int = 0
+
+
+class PublishPollResponse(BaseModel):
+    jobs_polled: int
+    jobs_completed: int
+    jobs_failed: int = 0
