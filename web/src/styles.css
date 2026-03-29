@@ -1588,3 +1588,77 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+.status-draft {
+  background: rgba(64, 52, 37, 0.08);
+  color: #6f6253;
+}
+
+.status-ready,
+.status-scheduled {
+  background: rgba(185, 147, 94, 0.14);
+  color: #8e7047;
+}
+
+.status-published {
+  background: rgba(111, 143, 133, 0.14);
+  color: #5e7b73;
+}
+
+.publish-job-row {
+  display: grid;
+  gap: 14px;
+}
+
+.publish-job-copy {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.publish-job-note-stack,
+.publish-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.publish-job-note-stack {
+  flex-direction: column;
+}
+
+.publish-job-note,
+.publish-job-actions-readonly span {
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.publish-job-error {
+  color: var(--error);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.publish-job-actions {
+  justify-content: flex-end;
+}
+
+.publish-job-actions .button-secondary,
+.publish-job-actions .button-primary {
+  min-width: 116px;
+}
+
+@media (max-width: 620px) {
+  .publish-job-copy,
+  .publish-job-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .publish-job-meta {
+    justify-content: flex-start;
+  }
+}

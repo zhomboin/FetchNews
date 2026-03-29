@@ -88,6 +88,8 @@ type ApiPublishJob = {
   status: string;
   retries: number;
   external_id: string | null;
+  error_message: string | null;
+  updated_at: string;
 };
 
 /**
@@ -240,6 +242,8 @@ export type PublishJobRecord = {
   status: string;
   retries: number;
   externalId: string | null;
+  errorMessage: string | null;
+  updatedAt: string;
 };
 
 /**
@@ -248,6 +252,15 @@ export type PublishJobRecord = {
 export type PublishArticlePayload = {
   platforms: string[];
   scheduledFor: string;
+};
+
+/**
+ * Manual writeback payload used to record publish results from the draft center.
+ */
+export type PublishJobResultPayload = {
+  status: "published" | "failed";
+  externalId?: string;
+  errorMessage?: string;
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -356,6 +369,8 @@ function mapPublishJob(apiJob: ApiPublishJob): PublishJobRecord {
     status: apiJob.status,
     retries: apiJob.retries,
     externalId: apiJob.external_id,
+    errorMessage: apiJob.error_message,
+    updatedAt: apiJob.updated_at,
   };
 }
 
@@ -494,4 +509,35 @@ export async function publishArticle(articleId: number, payload: PublishArticleP
     }),
   });
   return response.jobs.map(mapPublishJob);
+}
+
+/**
+ * Writes a publish result back to the backend so article status can be recalculated.
+ */
+export async function writePublishJobResult(
+  jobId: number,
+  payload: PublishJobResultPayload,
+): Promise<PublishJobRecord> {
+  const apiJob = await requestJson<ApiPublishJob>(`/publish-jobs/${jobId}/result`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      status: payload.status,
+      external_id: payload.externalId,
+      error_message: payload.errorMessage,
+    }),
+  });
+  return mapPublishJob(apiJob);
+}
+
+/**
+ * Re-queues a failed publish job and clears its previous result payload.
+ */
+export async function retryPublishJob(jobId: number): Promise<PublishJobRecord> {
+  const apiJob = await requestJson<ApiPublishJob>(`/publish-jobs/${jobId}/retry`, {
+    method: "POST",
+  });
+  return mapPublishJob(apiJob);
 }

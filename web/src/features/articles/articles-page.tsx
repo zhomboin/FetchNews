@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ArticleDraftRecord,
+  PostVariantRecord,
   PublishJobRecord,
   StoryRecord,
   fetchArticleDrafts,
@@ -11,6 +12,8 @@ import {
   fetchStories,
   generateDailyArticle,
   publishArticle,
+  retryPublishJob,
+  writePublishJobResult,
 } from "../../lib/api";
 
 const ARTICLES_QUERY_KEY = ["articles"] as const;
@@ -19,6 +22,7 @@ const PUBLISH_JOBS_QUERY_KEY = ["publishJobs"] as const;
 const ARTICLE_VARIANTS_QUERY_KEY = (articleId: number | null) => ["articleVariants", articleId] as const;
 const ARTICLE_REFRESH_INTERVAL_MS = 30_000;
 const PUBLISH_PLATFORMS = ["wechat", "x", "telegram"] as const;
+const MANUAL_FAILURE_MESSAGE = "人工审核标记失败，等待重试";
 
 type ArticlesPageProps = {
   health: string;
@@ -27,6 +31,7 @@ type ArticlesPageProps = {
 type ArticleMetrics = {
   totalArticles: number;
   readyArticles: number;
+  publishedArticles: number;
   totalStories: number;
   totalVariants: number;
 };
@@ -71,13 +76,14 @@ function formatDateTime(value: string): string {
 function summarizeArticles(articles: ArticleDraftRecord[]): ArticleMetrics {
   return {
     totalArticles: articles.length,
-    readyArticles: articles.filter((article) => article.status === "ready").length,
+    readyArticles: articles.filter((article) => article.status === "ready" || article.status === "scheduled").length,
+    publishedArticles: articles.filter((article) => article.status === "published").length,
     totalStories: articles.reduce((sum, article) => sum + article.storyCount, 0),
     totalVariants: articles.reduce((sum, article) => sum + article.variantCount, 0),
   };
 }
 
-function pickVariant(variants: { platform: string; content: string; updatedAt: string }[], platform: string) {
+function pickVariant(variants: PostVariantRecord[], platform: string): PostVariantRecord | undefined {
   return variants.find((variant) => variant.platform === platform);
 }
 
@@ -86,6 +92,38 @@ function formatStoryStatus(status: StoryRecord["status"]): string {
     return "已审核";
   }
   return "待审核";
+}
+
+function formatArticleStatus(status: string): string {
+  if (status === "draft") {
+    return "草稿";
+  }
+  if (status === "ready") {
+    return "待发布";
+  }
+  if (status === "scheduled") {
+    return "已排期";
+  }
+  if (status === "published") {
+    return "已发布";
+  }
+  if (status === "failed") {
+    return "发布失败";
+  }
+  return status;
+}
+
+function formatPublishStatus(status: string): string {
+  if (status === "scheduled") {
+    return "待回写";
+  }
+  if (status === "published") {
+    return "已发布";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  return status;
 }
 
 function formatPlatform(platform: string): string {
@@ -107,7 +145,7 @@ function toUtcIsoString(value: string): string | null {
 }
 
 /**
- * Phase 04/05 draft center for digest generation, pre-publish review, and scheduling.
+ * Phase 04/05 draft center for digest generation, review, publish writeback, and retry handling.
  */
 export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -135,6 +173,14 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     refetchInterval: ARTICLE_REFRESH_INTERVAL_MS,
   });
 
+  function invalidateArticleWorkspace(articleId: number | null = selectedArticleId): void {
+    void queryClient.invalidateQueries({ queryKey: ARTICLES_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: PUBLISH_JOBS_QUERY_KEY });
+    if (articleId !== null) {
+      void queryClient.invalidateQueries({ queryKey: ARTICLE_VARIANTS_QUERY_KEY(articleId) });
+    }
+  }
+
   const generateMutation = useMutation({
     mutationFn: () =>
       generateDailyArticle({
@@ -144,8 +190,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
       }),
     onSuccess: (article) => {
       setSelectedArticleId(article.id);
-      void queryClient.invalidateQueries({ queryKey: ARTICLES_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: ARTICLE_VARIANTS_QUERY_KEY(article.id) });
+      invalidateArticleWorkspace(article.id);
     },
   });
 
@@ -161,12 +206,38 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
       });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: PUBLISH_JOBS_QUERY_KEY });
+      invalidateArticleWorkspace();
+    },
+  });
+
+  const markPublishedMutation = useMutation({
+    mutationFn: (jobId: number) => writePublishJobResult(jobId, { status: "published" }),
+    onSuccess: () => {
+      invalidateArticleWorkspace();
+    },
+  });
+
+  const markFailedMutation = useMutation({
+    mutationFn: (jobId: number) =>
+      writePublishJobResult(jobId, {
+        status: "failed",
+        errorMessage: MANUAL_FAILURE_MESSAGE,
+      }),
+    onSuccess: () => {
+      invalidateArticleWorkspace();
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (jobId: number) => retryPublishJob(jobId),
+    onSuccess: () => {
+      invalidateArticleWorkspace();
     },
   });
 
   const articles = articlesQuery.data ?? [];
-  const approvedStories = (storiesQuery.data ?? []).filter((story) => story.status === "approved");
+  const allStories = storiesQuery.data ?? [];
+  const approvedStories = allStories.filter((story) => story.status === "approved");
   const metrics = summarizeArticles(articles);
 
   React.useEffect(() => {
@@ -203,13 +274,17 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
   const telegramVariant = pickVariant(variants, "telegram");
 
   const selectedArticleStories = selectedArticle
-    ? approvedStories.filter((story) => selectedArticle.storyIds.includes(story.id))
+    ? allStories.filter((story) => selectedArticle.storyIds.includes(story.id))
     : [];
   const articlePublishJobs = (publishJobsQuery.data ?? [])
     .filter((job) => job.articleId === selectedArticleId)
     .sort((left, right) => new Date(right.scheduledFor).getTime() - new Date(left.scheduledFor).getTime());
   const hasAllSelectedVariants = selectedArticle
-    ? selectedPlatforms.every((platform) => selectedArticle.variantCount >= selectedPlatforms.length && variants.some((variant) => variant.platform === platform))
+    ? selectedPlatforms.every(
+        (platform) =>
+          selectedArticle.variantCount >= selectedPlatforms.length &&
+          variants.some((variant) => variant.platform === platform),
+      )
     : false;
   const canGenerate =
     scopeMode === "all-approved" ? approvedStories.length > 0 : selectedStoryIds.length > 0;
@@ -218,6 +293,8 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     selectedPlatforms.length > 0 &&
     toUtcIsoString(scheduledFor) !== null &&
     hasAllSelectedVariants;
+  const isJobActionPending =
+    markPublishedMutation.isPending || markFailedMutation.isPending || retryMutation.isPending;
 
   function toggleSelectedStory(storyId: number): void {
     setSelectedStoryIds((current) =>
@@ -231,6 +308,52 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     );
   }
 
+  function renderPublishJobActions(job: PublishJobRecord): React.JSX.Element {
+    if (job.status === "scheduled") {
+      return (
+        <div className="publish-job-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => markFailedMutation.mutate(job.id)}
+            disabled={isJobActionPending}
+          >
+            标记失败
+          </button>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => markPublishedMutation.mutate(job.id)}
+            disabled={isJobActionPending}
+          >
+            标记已发布
+          </button>
+        </div>
+      );
+    }
+
+    if (job.status === "failed") {
+      return (
+        <div className="publish-job-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => retryMutation.mutate(job.id)}
+            disabled={isJobActionPending}
+          >
+            重新入队
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="publish-job-actions publish-job-actions-readonly">
+        <span>结果已回写，无需额外操作。</span>
+      </div>
+    );
+  }
+
   return (
     <div className="page-stack">
       <section className="hero-panel">
@@ -238,7 +361,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
           <p className="eyebrow">Daily Digest Studio</p>
           <h1>日报草稿中心</h1>
           <p className="lede">
-            基于已审核 stories 控制日报生成范围与说明，并在同一工作台完成发布前审核、平台选择和发布排程。
+            基于已审核 stories 控制日报生成范围与说明，并在同一工作台完成发布前审核、结果回写、失败重试和状态追踪。
           </p>
         </div>
 
@@ -258,17 +381,17 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
         <article className="metric-cell">
           <p>草稿数量</p>
           <strong>{metrics.totalArticles}</strong>
-          <span>当前库内可审阅的日报草稿</span>
+          <span>当前库内可审核的日报草稿</span>
         </article>
         <article className="metric-cell">
-          <p>Ready 草稿</p>
+          <p>待发布草稿</p>
           <strong>{metrics.readyArticles}</strong>
-          <span>已生成并可进入发布链路的日报</span>
+          <span>处于 ready 或 scheduled 状态的日报</span>
         </article>
         <article className="metric-cell">
-          <p>已审核 stories</p>
-          <strong>{approvedStories.length}</strong>
-          <span>当前可参与日报生成的 story 数量</span>
+          <p>已发布草稿</p>
+          <strong>{metrics.publishedArticles}</strong>
+          <span>所有发布任务都已完成回写的日报</span>
         </article>
         <article className="metric-cell">
           <p>短帖变体</p>
@@ -317,7 +440,9 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
           <div className="story-scope-panel">
             <div className="story-scope-head">
               <strong>选择参与本次日报的 stories</strong>
-              <span>{selectedStoryIds.length} / {approvedStories.length} 条</span>
+              <span>
+                {selectedStoryIds.length} / {approvedStories.length} 条
+              </span>
             </div>
 
             <div className="story-scope-list">
@@ -347,9 +472,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
         </label>
 
         <div className="action-row">
-          <button type="button" className="button-secondary" onClick={() => setGenerationNote("")}>
-            清空说明
-          </button>
+          <button type="button" className="button-secondary" onClick={() => setGenerationNote("")}>清空说明</button>
           <button
             type="button"
             className="button-primary"
@@ -382,7 +505,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
           </header>
 
           {articlesQuery.isLoading ? <div className="empty-state">正在加载日报草稿...</div> : null}
-          {articlesQuery.isError ? <div className="empty-state">日报草稿加载失败，请确认 `/articles` 接口可用。</div> : null}
+          {articlesQuery.isError ? <div className="empty-state">日报草稿加载失败，请确认 /articles 接口可用。</div> : null}
           {!articlesQuery.isLoading && !articlesQuery.isError && articles.length === 0 ? (
             <div className="empty-state">当前还没有日报草稿。先生成一篇日报。</div>
           ) : null}
@@ -398,7 +521,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                 >
                   <div className="article-row-topline">
                     <p>{formatDate(article.targetDate)}</p>
-                    <span className={`status-pill status-${article.status}`}>{article.status}</span>
+                    <span className={`status-pill status-${article.status}`}>{formatArticleStatus(article.status)}</span>
                   </div>
                   <h3>{article.title}</h3>
                   <p>{article.summary}</p>
@@ -440,6 +563,10 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                   <div>
                     <strong>{selectedArticle.variantCount}</strong>
                     <span>variants</span>
+                  </div>
+                  <div>
+                    <strong>{formatArticleStatus(selectedArticle.status)}</strong>
+                    <span>article status</span>
                   </div>
                 </div>
               </section>
@@ -509,17 +636,25 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                   <div className="risk-stat" data-tone={selectedArticle.storyCount > 0 ? "calm" : "watch"}>
                     <p>内容范围</p>
                     <strong>{selectedArticle.storyCount > 0 ? "已覆盖" : "缺失"}</strong>
-                    <span>{selectedArticle.storyCount > 0 ? `${selectedArticle.storyCount} 条 stories 已纳入本稿。` : "当前草稿没有故事输入。"}</span>
+                    <span>
+                      {selectedArticle.storyCount > 0
+                        ? `${selectedArticle.storyCount} 条 stories 已纳入本稿。`
+                        : "当前草稿没有故事输入。"}
+                    </span>
                   </div>
                   <div className="risk-stat" data-tone={hasAllSelectedVariants ? "calm" : "watch"}>
                     <p>平台变体</p>
                     <strong>{hasAllSelectedVariants ? "可发布" : "待补齐"}</strong>
-                    <span>{hasAllSelectedVariants ? "所选平台均存在可用变体。" : "请先确认所选平台的变体已生成。"}</span>
+                    <span>
+                      {hasAllSelectedVariants
+                        ? "所选平台均存在可用变体。"
+                        : "请先确认所选平台的变体已生成。"}
+                    </span>
                   </div>
-                  <div className="risk-stat" data-tone="default">
-                    <p>最近更新</p>
-                    <strong>{formatDateTime(selectedArticle.updatedAt)}</strong>
-                    <span>发布前建议确认内容仍与最新 stories 一致。</span>
+                  <div className="risk-stat" data-tone={selectedArticle.status === "failed" ? "watch" : "default"}>
+                    <p>草稿状态</p>
+                    <strong>{formatArticleStatus(selectedArticle.status)}</strong>
+                    <span>状态会跟随发布任务回写自动变化，无需手工同步。</span>
                   </div>
                 </div>
 
@@ -565,22 +700,35 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                   <span>先在本页确认正文、平台短帖和发布时间，再创建发布任务。</span>
                   {publishMutation.isSuccess ? <strong>已写入 {publishMutation.data.length} 条发布任务。</strong> : null}
                   {publishMutation.isError ? <strong>发布任务创建失败，请检查时间和平台选择。</strong> : null}
+                  {markPublishedMutation.isSuccess ? <strong>发布成功结果已回写。</strong> : null}
+                  {markFailedMutation.isSuccess ? <strong>失败结果已回写，可直接重试。</strong> : null}
+                  {retryMutation.isSuccess ? <strong>失败任务已重新入队。</strong> : null}
                 </div>
 
                 <div className="publish-job-list">
                   {articlePublishJobs.length === 0 ? (
                     <div className="empty-state">当前草稿还没有发布任务。</div>
                   ) : (
-                    articlePublishJobs.map((job: PublishJobRecord) => (
+                    articlePublishJobs.map((job) => (
                       <article key={job.id} className="publish-job-row">
-                        <div>
-                          <strong>{formatPlatform(job.platform)}</strong>
-                          <p>{formatDateTime(job.scheduledFor)}</p>
+                        <div className="publish-job-copy">
+                          <div>
+                            <strong>{formatPlatform(job.platform)}</strong>
+                            <p>{formatDateTime(job.scheduledFor)}</p>
+                          </div>
+                          <div className="publish-job-meta">
+                            <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
+                            <span>重试 {job.retries}</span>
+                          </div>
                         </div>
-                        <div className="publish-job-meta">
-                          <span className={`status-pill status-${job.status}`}>{job.status}</span>
-                          <span>重试 {job.retries}</span>
+
+                        <div className="publish-job-note-stack">
+                          <span className="publish-job-note">最近更新：{formatDateTime(job.updatedAt)}</span>
+                          {job.externalId ? <span className="publish-job-note">外部 ID：{job.externalId}</span> : null}
+                          {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                         </div>
+
+                        {renderPublishJobActions(job)}
                       </article>
                     ))
                   )}
@@ -588,7 +736,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
               </section>
 
               {variantsQuery.isLoading ? <div className="empty-state">正在加载短帖变体...</div> : null}
-              {variantsQuery.isError ? <div className="empty-state">短帖变体加载失败，请确认 `/articles/:articleId/variants` 接口可用。</div> : null}
+              {variantsQuery.isError ? <div className="empty-state">短帖变体加载失败，请确认 /articles/:articleId/variants 接口可用。</div> : null}
             </div>
           ) : null}
         </article>

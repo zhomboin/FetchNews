@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
-from fetchnews.models import ArticleDraft, IngestRun, NormalizedItemRecord, PublishJob, PublishJobStatus, Story, StoryStatus
+from fetchnews.models import ArticleDraft, IngestRun, NormalizedItemRecord, PublishJob, Story, StoryStatus
 from fetchnews.pipeline.article_service import article_to_response, generate_and_persist_daily_digest, list_article_variants, list_articles
 from fetchnews.pipeline.service import run_story_pipeline
+from fetchnews.publishing.service import create_publish_jobs, publish_job_to_response, retry_publish_job, write_publish_job_result
 from fetchnews.schemas import (
     ArticleDraftResponse,
     GenerateDailyArticleRequest,
@@ -21,6 +22,7 @@ from fetchnews.schemas import (
     PipelineRebuildResponse,
     PostVariantResponse,
     PublishJobResponse,
+    PublishJobResultRequest,
     PublishRequest,
     StoryCreatePayload,
     StoryResponse,
@@ -194,57 +196,38 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
         article = db.get(ArticleDraft, article_id)
         if article is None:
             raise HTTPException(status_code=404, detail="Article not found")
-        jobs: list[PublishJobResponse] = []
-        for platform in payload.platforms:
-            job = PublishJob(
-                article_id=article.id,
-                platform=platform,
-                scheduled_for=payload.scheduled_for,
-                status=PublishJobStatus.SCHEDULED,
-                retries=0,
-                external_id=None,
-            )
-            db.add(job)
-            db.flush()
-            jobs.append(
-                PublishJobResponse(
-                    id=job.id,
-                    article_id=job.article_id,
-                    platform=job.platform,
-                    scheduled_for=job.scheduled_for,
-                    status=job.status,
-                    retries=job.retries,
-                    external_id=job.external_id,
-                )
-            )
+        jobs = create_publish_jobs(db, article, payload.platforms, payload.scheduled_for)
         db.commit()
         return {"jobs": jobs}
 
     @app.get("/publish-jobs", response_model=list[PublishJobResponse])
     def list_publish_jobs(db: Session = Depends(get_db)) -> list[PublishJobResponse]:
         jobs = db.scalars(select(PublishJob).order_by(PublishJob.id.asc())).all()
-        return [
-            PublishJobResponse(
-                id=job.id,
-                article_id=job.article_id,
-                platform=job.platform,
-                scheduled_for=job.scheduled_for,
-                status=job.status,
-                retries=job.retries,
-                external_id=job.external_id,
-            )
-            for job in jobs
-        ]
+        return [publish_job_to_response(job) for job in jobs]
 
-    @app.post("/publish-jobs/{job_id}/retry")
-    def retry_publish_job(job_id: int, db: Session = Depends(get_db)) -> dict[str, str | int]:
+    @app.post("/publish-jobs/{job_id}/result", response_model=PublishJobResponse)
+    def write_job_result(job_id: int, payload: PublishJobResultRequest, db: Session = Depends(get_db)) -> PublishJobResponse:
         job = db.get(PublishJob, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Publish job not found")
-        job.retries += 1
-        job.status = PublishJobStatus.SCHEDULED
+        result = write_publish_job_result(
+            db,
+            job,
+            status=payload.status,
+            external_id=payload.external_id,
+            error_message=payload.error_message,
+        )
         db.commit()
-        return {"id": job.id, "status": job.status, "retries": job.retries}
+        return result
+
+    @app.post("/publish-jobs/{job_id}/retry", response_model=PublishJobResponse)
+    def retry_job(job_id: int, db: Session = Depends(get_db)) -> PublishJobResponse:
+        job = db.get(PublishJob, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Publish job not found")
+        result = retry_publish_job(db, job)
+        db.commit()
+        return result
 
     return app
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -148,6 +149,12 @@ class PublishRequest(BaseModel):
     scheduled_for: datetime
 
 
+class PublishJobResultRequest(BaseModel):
+    status: Literal["published", "failed"]
+    external_id: str | None = None
+    error_message: str | None = None
+
+
 class PublishJobResponse(BaseModel):
     id: int
     article_id: int
@@ -156,3 +163,5 @@ class PublishJobResponse(BaseModel):
     status: str
     retries: int
     external_id: str | None = None
+    error_message: str | None = None
+    updated_at: datetime

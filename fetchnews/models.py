@@ -18,6 +18,9 @@ class StoryStatus(StrEnum):
 class ArticleStatus(StrEnum):
     DRAFT = "draft"
     READY = "ready"
+    SCHEDULED = "scheduled"
+    PUBLISHED = "published"
+    FAILED = "failed"
 
 
 class PublishJobStatus(StrEnum):
@@ -179,4 +182,10 @@ class PublishJob(Base):
     status: Mapped[str] = mapped_column(String(20), default=PublishJobStatus.SCHEDULED)
     retries: Mapped[int] = mapped_column(Integer, default=0)
     external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

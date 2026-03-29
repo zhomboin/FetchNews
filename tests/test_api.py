@@ -192,6 +192,102 @@ def test_daily_digest_generation_can_scope_stories_and_store_note() -> None:
         assert "OpenAI updates agent evaluation stack" in variants_payload[0]["content"] or "OpenAI updates agent evaluation stack" in variants_payload[1]["content"]
 
 
+
+def test_publish_job_result_writeback_and_retry_updates_article_status() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase05_publish.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase05-1",
+                cluster_title="OpenAI ships a new agent runtime",
+                summary="OpenAI 发布了新的 agent runtime。",
+                score=9.1,
+                tags=["agent", "runtime"],
+                source_links=["https://openai.com/blog/agent-runtime"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        generate_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-03-29"},
+        )
+        assert generate_response.status_code == 200
+        article_id = generate_response.json()["id"]
+        assert generate_response.json()["status"] == "ready"
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat", "x"], "scheduled_for": "2026-03-29T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs_payload = publish_response.json()["jobs"]
+        assert len(jobs_payload) == 2
+        first_job_id = jobs_payload[0]["id"]
+        second_job_id = jobs_payload[1]["id"]
+
+        article_after_schedule = client.get(f"/articles/{article_id}")
+        assert article_after_schedule.status_code == 200
+        assert article_after_schedule.json()["status"] == "scheduled"
+
+        first_result_response = client.post(
+            f"/publish-jobs/{first_job_id}/result",
+            json={"status": "published", "external_id": "wx-001"},
+        )
+        assert first_result_response.status_code == 200
+        assert first_result_response.json()["status"] == "published"
+
+        article_during_publish = client.get(f"/articles/{article_id}")
+        assert article_during_publish.status_code == 200
+        assert article_during_publish.json()["status"] == "scheduled"
+
+        failed_result_response = client.post(
+            f"/publish-jobs/{second_job_id}/result",
+            json={"status": "failed", "error_message": "rate limit"},
+        )
+        assert failed_result_response.status_code == 200
+        assert failed_result_response.json()["status"] == "failed"
+        assert failed_result_response.json()["error_message"] == "rate limit"
+
+        article_failed = client.get(f"/articles/{article_id}")
+        assert article_failed.status_code == 200
+        assert article_failed.json()["status"] == "failed"
+
+        retry_response = client.post(f"/publish-jobs/{second_job_id}/retry")
+        assert retry_response.status_code == 200
+        assert retry_response.json()["status"] == "scheduled"
+        assert retry_response.json()["retries"] == 1
+
+        article_after_retry = client.get(f"/articles/{article_id}")
+        assert article_after_retry.status_code == 200
+        assert article_after_retry.json()["status"] == "scheduled"
+
+        final_result_response = client.post(
+            f"/publish-jobs/{second_job_id}/result",
+            json={"status": "published", "external_id": "x-002"},
+        )
+        assert final_result_response.status_code == 200
+        assert final_result_response.json()["status"] == "published"
+
+        article_published = client.get(f"/articles/{article_id}")
+        assert article_published.status_code == 200
+        assert article_published.json()["status"] == "published"
+
+        jobs_response = client.get("/publish-jobs")
+        assert jobs_response.status_code == 200
+        job_statuses = {job["id"]: job["status"] for job in jobs_response.json()}
+        assert job_statuses[first_job_id] == "published"
+        assert job_statuses[second_job_id] == "published"
 def test_pipeline_debug_endpoints_expose_normalized_items_and_rebuild() -> None:
     app = create_app(
         Settings(
