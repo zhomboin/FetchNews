@@ -144,6 +144,27 @@ class ArticleDraft(Base):
     status: Mapped[str] = mapped_column(String(20), default=ArticleStatus.DRAFT)
     story_keys: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class PostVariant(Base):
+    __tablename__ = "post_variants"
+    __table_args__ = (UniqueConstraint("article_id", "platform", name="uq_post_variants_article_platform"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("article_drafts.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(50), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 class PublishJob(Base):

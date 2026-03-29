@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
+import { ArticlesPage } from "./features/articles/articles-page";
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { PreviewDashboard } from "./features/preview/preview-dashboard";
 import { StoriesPage } from "./features/stories/stories-page";
@@ -64,7 +65,7 @@ function Shell(): React.JSX.Element {
           <Route path="/" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="/ingestion" element={<IngestionRunsPage health={health} />} />
           <Route path="/stories" element={<StoriesPage health={health} />} />
-          <Route path="/articles" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/articles" element={<ArticlesPage health={health} />} />
           <Route path="/publishing" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
           <Route path="*" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
         </Routes>

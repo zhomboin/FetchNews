@@ -12,7 +12,6 @@ from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
 from fetchnews.models import (
     ArticleDraft,
-    ArticleStatus,
     IngestRun,
     NormalizedItemRecord,
     PublishJob,
@@ -20,16 +19,22 @@ from fetchnews.models import (
     Story,
     StoryStatus,
 )
-from fetchnews.pipeline.generation import generate_daily_digest
+from fetchnews.pipeline.article_service import (
+    article_to_response,
+    generate_and_persist_daily_digest,
+    list_article_variants,
+    list_articles,
+)
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import (
+    ArticleDraftResponse,
     IngestRunRequest,
     IngestRunResponse,
     NormalizedItem,
     PipelineRebuildResponse,
+    PostVariantResponse,
     PublishJobResponse,
     PublishRequest,
-    StoryCandidate,
     StoryCreatePayload,
     StoryResponse,
 )
@@ -164,73 +169,30 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
         db.commit()
         return {"id": story.id, "status": story.status}
 
-    @app.post("/articles/generate/daily")
-    def generate_daily_article(target_date: date, db: Session = Depends(get_db)) -> dict[str, object]:
-        approved_stories = db.scalars(select(Story).where(Story.status == StoryStatus.APPROVED)).all()
-        candidates = [
-            StoryCandidate(
-                story_key=story.story_key,
-                cluster_title=story.cluster_title,
-                summary=story.summary,
-                highlights=story.highlights,
-                source_links=story.source_links,
-                tags=story.tags,
-                risk_flags=story.risk_flags,
-                score=story.score,
-                item_count=story.item_count,
-                first_seen_at=story.first_seen_at,
-                last_seen_at=story.last_seen_at,
-            )
-            for story in approved_stories
-        ]
-        digest = generate_daily_digest(target_date=target_date, stories=candidates)
-
-        article = db.scalar(select(ArticleDraft).where(ArticleDraft.target_date == target_date))
-        if article is None:
-            article = ArticleDraft(
-                target_date=target_date,
-                title=digest.article.title,
-                summary=digest.article.summary,
-                body=digest.article.body,
-                story_keys=digest.article.story_keys,
-                status=ArticleStatus.READY,
-            )
-            db.add(article)
-        else:
-            article.title = digest.article.title
-            article.summary = digest.article.summary
-            article.body = digest.article.body
-            article.story_keys = digest.article.story_keys
-            article.status = ArticleStatus.READY
+    @app.post("/articles/generate/daily", response_model=ArticleDraftResponse)
+    def generate_daily_article(target_date: date, db: Session = Depends(get_db)) -> ArticleDraftResponse:
+        article = generate_and_persist_daily_digest(db, target_date)
         db.commit()
-        db.refresh(article)
-        return {"id": article.id, "title": article.title, "summary": article.summary}
+        return article
 
-    @app.get("/articles/{article_id}")
-    def get_article(article_id: int, db: Session = Depends(get_db)) -> dict[str, object]:
+    @app.get("/articles", response_model=list[ArticleDraftResponse])
+    def list_article_drafts(db: Session = Depends(get_db)) -> list[ArticleDraftResponse]:
+        return list_articles(db)
+
+    @app.get("/articles/{article_id}", response_model=ArticleDraftResponse)
+    def get_article(article_id: int, db: Session = Depends(get_db)) -> ArticleDraftResponse:
         article = db.get(ArticleDraft, article_id)
         if article is None:
             raise HTTPException(status_code=404, detail="Article not found")
-        return {
-            "id": article.id,
-            "target_date": article.target_date,
-            "title": article.title,
-            "summary": article.summary,
-            "body": article.body,
-            "story_keys": article.story_keys,
-            "status": article.status,
-        }
+        variant_count = len(list_article_variants(db, article.id))
+        return article_to_response(article, variant_count)
 
-    @app.get("/articles/{article_id}/variants")
-    def get_article_variants(article_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    @app.get("/articles/{article_id}/variants", response_model=list[PostVariantResponse])
+    def get_article_variants(article_id: int, db: Session = Depends(get_db)) -> list[PostVariantResponse]:
         article = db.get(ArticleDraft, article_id)
         if article is None:
             raise HTTPException(status_code=404, detail="Article not found")
-        return {
-            "wechat": article.title,
-            "x": f"{article.title} | {article.summary}",
-            "telegram": article.summary,
-        }
+        return list_article_variants(db, article.id)
 
     @app.post("/articles/{article_id}/publish")
     def publish_article(article_id: int, payload: PublishRequest, db: Session = Depends(get_db)) -> dict[str, list[PublishJobResponse]]:

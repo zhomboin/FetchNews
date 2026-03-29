@@ -56,6 +56,28 @@ type ApiNormalizedItem = {
   metadata: Record<string, unknown>;
 };
 
+type ApiArticleDraft = {
+  id: number;
+  target_date: string;
+  title: string;
+  summary: string;
+  body: string;
+  story_keys: string[];
+  status: string;
+  story_count: number;
+  variant_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type ApiPostVariant = {
+  id: number;
+  article_id: number;
+  platform: string;
+  content: string;
+  updated_at: string;
+};
+
 /**
  * Minimal health payload returned by the backend.
  */
@@ -156,6 +178,34 @@ export type PipelineRebuildResult = {
   stories: number;
 };
 
+/**
+ * Generated article draft persisted for review and publishing.
+ */
+export type ArticleDraftRecord = {
+  id: number;
+  targetDate: string;
+  title: string;
+  summary: string;
+  body: string;
+  storyKeys: string[];
+  status: string;
+  storyCount: number;
+  variantCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * Platform-specific post variant derived from a daily digest.
+ */
+export type PostVariantRecord = {
+  id: number;
+  articleId: number;
+  platform: string;
+  content: string;
+  updatedAt: string;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
@@ -222,6 +272,32 @@ function mapNormalizedItem(apiItem: ApiNormalizedItem): NormalizedItemRecord {
     tags: apiItem.tags,
     keywords: apiItem.keywords,
     metadata: apiItem.metadata,
+  };
+}
+
+function mapArticleDraft(apiArticle: ApiArticleDraft): ArticleDraftRecord {
+  return {
+    id: apiArticle.id,
+    targetDate: apiArticle.target_date,
+    title: apiArticle.title,
+    summary: apiArticle.summary,
+    body: apiArticle.body,
+    storyKeys: apiArticle.story_keys,
+    status: apiArticle.status,
+    storyCount: apiArticle.story_count,
+    variantCount: apiArticle.variant_count,
+    createdAt: apiArticle.created_at,
+    updatedAt: apiArticle.updated_at,
+  };
+}
+
+function mapPostVariant(apiVariant: ApiPostVariant): PostVariantRecord {
+  return {
+    id: apiVariant.id,
+    articleId: apiVariant.article_id,
+    platform: apiVariant.platform,
+    content: apiVariant.content,
+    updatedAt: apiVariant.updated_at,
   };
 }
 
@@ -293,6 +369,7 @@ export async function rebuildStoriesPipeline(): Promise<PipelineRebuildResult> {
     stories: payload.stories,
   };
 }
+
 /**
  * Marks a story as approved for downstream digest generation.
  */
@@ -300,4 +377,30 @@ export function approveStory(storyId: number): Promise<{ id: number; status: str
   return requestJson<{ id: number; status: string }>(`/stories/${storyId}/approve`, {
     method: "POST",
   });
+}
+
+/**
+ * Loads generated article drafts for the Phase 04 draft center.
+ */
+export async function fetchArticleDrafts(): Promise<ArticleDraftRecord[]> {
+  const apiArticles = await requestJson<ApiArticleDraft[]>("/articles");
+  return apiArticles.map(mapArticleDraft);
+}
+
+/**
+ * Generates or refreshes the daily digest for a given date.
+ */
+export async function generateDailyArticle(targetDate: string): Promise<ArticleDraftRecord> {
+  const apiArticle = await requestJson<ApiArticleDraft>(`/articles/generate/daily?target_date=${targetDate}`, {
+    method: "POST",
+  });
+  return mapArticleDraft(apiArticle);
+}
+
+/**
+ * Loads platform-specific post variants for a generated article.
+ */
+export async function fetchArticleVariants(articleId: number): Promise<PostVariantRecord[]> {
+  const apiVariants = await requestJson<ApiPostVariant[]>(`/articles/${articleId}/variants`);
+  return apiVariants.map(mapPostVariant);
 }

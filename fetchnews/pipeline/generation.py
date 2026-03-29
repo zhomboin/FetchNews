@@ -1,25 +1,39 @@
+from __future__ import annotations
+
 from datetime import date
 
 from fetchnews.schemas import ArticleDraftPayload, DailyDigest, StoryCandidate
 
 
 def generate_daily_digest(target_date: date, stories: list[StoryCandidate]) -> DailyDigest:
-    ordered = sorted(stories, key=lambda story: story.score, reverse=True)
-    body_sections = []
+    ordered = sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
+    body_sections: list[str] = []
     for index, story in enumerate(ordered, start=1):
-        body_sections.append(f"{index}. {story.cluster_title}\n{story.summary}\n来源：{', '.join(story.source_links)}")
+        highlights = "；".join(story.highlights[:2]) if story.highlights else "待补充亮点"
+        sources = "、".join(story.source_links[:3])
+        body_sections.append(
+            f"{index}. {story.cluster_title}\n"
+            f"摘要：{story.summary}\n"
+            f"亮点：{highlights}\n"
+            f"来源：{sources}"
+        )
 
-    article = ArticleDraftPayload
-    payload = article(
+    story_count = len(ordered)
+    summary = f"今日整理 {story_count} 条高价值 AI 资讯，重点关注模型能力、开源工具链与基础设施更新。"
+    article = ArticleDraftPayload(
         target_date=target_date,
         title=f"AI 资讯日报 {target_date.isoformat()}",
-        summary=f"今日共整理 {len(ordered)} 条 AI 重点资讯。",
-        body="\n\n".join(body_sections),
+        summary=summary,
+        body="\n\n".join(body_sections) if body_sections else "今日暂无通过审核的 AI 资讯。",
         story_keys=[story.story_key for story in ordered],
     )
+
+    top_story = ordered[0] if ordered else None
+    top_label = top_story.cluster_title if top_story else "今日暂无通过审核内容"
+    top_tags = " #" + " #".join(top_story.tags[:2]) if top_story and top_story.tags else ""
     posts = {
-        "x": f"AI 资讯日报 {target_date.isoformat()}：{ordered[0].cluster_title}" if ordered else "AI 资讯日报暂无内容",
-        "telegram": payload.summary,
-        "wechat": payload.title,
+        "wechat": f"{article.title}\n\n{article.summary}\n\n{article.body}",
+        "x": f"{article.title}｜{top_label}{top_tags}"[:280],
+        "telegram": f"{article.title}\n\n{article.summary}\n\n{article.body}",
     }
-    return DailyDigest(article=payload, posts=posts)
+    return DailyDigest(article=article, posts=posts)

@@ -91,6 +91,23 @@ class StoryResponse(StoryCreatePayload):
     status: str
 
 
+class ArticleDraftResponse(ArticleDraftPayload):
+    id: int
+    status: str
+    story_count: int
+    variant_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PostVariantResponse(BaseModel):
+    id: int
+    article_id: int
+    platform: str
+    content: str
+    updated_at: datetime
+
+
 class IngestRunRequest(BaseModel):
     source_slugs: list[str] | None = None
 

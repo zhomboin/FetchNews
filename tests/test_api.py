@@ -91,6 +91,62 @@ def test_story_review_and_publish_flow() -> None:
         assert len(jobs_response.json()) >= 2
 
 
+def test_daily_digest_generation_persists_article_and_variants() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase04_api.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/stories",
+            json=StoryCreatePayload(
+                story_key="story-phase04-1",
+                cluster_title="OpenAI updates agent evaluation stack",
+                summary="OpenAI 更新了 agent 评测链路，强调真实工作流验证。",
+                highlights=["聚焦真实工作流", "强调评测一致性"],
+                source_links=["https://openai.com/blog/agent-evals"],
+                tags=["agent", "evaluation"],
+                risk_flags=[],
+                score=9.4,
+                item_count=2,
+                first_seen_at=datetime(2026, 3, 28, 9, 0, tzinfo=UTC).isoformat(),
+                last_seen_at=datetime(2026, 3, 28, 9, 0, tzinfo=UTC).isoformat(),
+            ).model_dump(mode="json"),
+        )
+        assert create_response.status_code == 201
+        story_id = create_response.json()["id"]
+
+        approve_response = client.post(f"/stories/{story_id}/approve")
+        assert approve_response.status_code == 200
+
+        generate_response = client.post("/articles/generate/daily", params={"target_date": "2026-03-28"})
+        assert generate_response.status_code == 200
+        article_payload = generate_response.json()
+        assert article_payload["status"] == "ready"
+        assert article_payload["story_count"] == 1
+        assert article_payload["variant_count"] == 3
+        article_id = article_payload["id"]
+
+        articles_response = client.get("/articles")
+        assert articles_response.status_code == 200
+        articles_payload = articles_response.json()
+        assert len(articles_payload) == 1
+        assert articles_payload[0]["id"] == article_id
+        assert articles_payload[0]["variant_count"] == 3
+
+        article_detail_response = client.get(f"/articles/{article_id}")
+        assert article_detail_response.status_code == 200
+        assert article_detail_response.json()["title"].startswith("AI 资讯日报")
+
+        variants_response = client.get(f"/articles/{article_id}/variants")
+        assert variants_response.status_code == 200
+        variants_payload = variants_response.json()
+        assert {variant["platform"] for variant in variants_payload} == {"wechat", "x", "telegram"}
+        assert all(variant["content"] for variant in variants_payload)
 def test_pipeline_debug_endpoints_expose_normalized_items_and_rebuild() -> None:
     app = create_app(
         Settings(
