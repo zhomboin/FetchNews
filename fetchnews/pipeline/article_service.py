@@ -10,11 +10,21 @@ from fetchnews.pipeline.generation import generate_daily_digest
 from fetchnews.schemas import ArticleDraftResponse, PostVariantResponse, StoryCandidate
 
 
-def generate_and_persist_daily_digest(session: Session, target_date: date) -> ArticleDraftResponse:
-    approved_stories = session.scalars(
-        select(Story).where(Story.status == StoryStatus.APPROVED).order_by(Story.score.desc(), Story.last_seen_at.desc())
-    ).all()
-    digest = generate_daily_digest(target_date=target_date, stories=[_story_to_candidate(story) for story in approved_stories])
+def generate_and_persist_daily_digest(
+    session: Session,
+    target_date: date,
+    story_ids: list[int] | None = None,
+    generation_note: str | None = None,
+) -> ArticleDraftResponse:
+    approved_stories = _load_approved_stories(session, story_ids)
+    digest = generate_daily_digest(
+        target_date=target_date,
+        stories=[_story_to_candidate(story) for story in approved_stories],
+        generation_note=generation_note,
+    )
+
+    normalized_note = generation_note.strip() if generation_note and generation_note.strip() else None
+    selected_story_ids = [story.id for story in approved_stories]
 
     article = session.scalar(select(ArticleDraft).where(ArticleDraft.target_date == target_date))
     if article is None:
@@ -23,7 +33,9 @@ def generate_and_persist_daily_digest(session: Session, target_date: date) -> Ar
             title=digest.article.title,
             summary=digest.article.summary,
             body=digest.article.body,
+            story_ids=selected_story_ids,
             story_keys=digest.article.story_keys,
+            generation_note=normalized_note,
             status=ArticleStatus.READY,
         )
         session.add(article)
@@ -32,7 +44,9 @@ def generate_and_persist_daily_digest(session: Session, target_date: date) -> Ar
         article.title = digest.article.title
         article.summary = digest.article.summary
         article.body = digest.article.body
+        article.story_ids = selected_story_ids
         article.story_keys = digest.article.story_keys
+        article.generation_note = normalized_note
         article.status = ArticleStatus.READY
         session.flush()
 
@@ -63,9 +77,11 @@ def article_to_response(article: ArticleDraft, variant_count: int) -> ArticleDra
         title=article.title,
         summary=article.summary,
         body=article.body,
+        story_ids=article.story_ids,
         story_keys=article.story_keys,
+        generation_note=article.generation_note,
         status=article.status,
-        story_count=len(article.story_keys),
+        story_count=len(article.story_ids),
         variant_count=variant_count,
         created_at=article.created_at,
         updated_at=article.updated_at,
@@ -80,6 +96,19 @@ def variant_to_response(variant: PostVariant) -> PostVariantResponse:
         content=variant.content,
         updated_at=variant.updated_at,
     )
+
+
+def _load_approved_stories(session: Session, story_ids: list[int] | None) -> list[Story]:
+    query = select(Story).where(Story.status == StoryStatus.APPROVED)
+    if story_ids:
+        requested_story_ids = list(dict.fromkeys(story_ids))
+        stories = session.scalars(query.where(Story.id.in_(requested_story_ids))).all()
+        loaded_story_ids = {story.id for story in stories}
+        if loaded_story_ids != set(requested_story_ids):
+            raise ValueError("One or more selected stories are unavailable or not approved")
+        return sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
+
+    return session.scalars(query.order_by(Story.score.desc(), Story.last_seen_at.desc())).all()
 
 
 def _story_to_candidate(story: Story) -> StoryCandidate:

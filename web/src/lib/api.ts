@@ -62,7 +62,9 @@ type ApiArticleDraft = {
   title: string;
   summary: string;
   body: string;
+  story_ids: number[];
   story_keys: string[];
+  generation_note: string | null;
   status: string;
   story_count: number;
   variant_count: number;
@@ -76,6 +78,16 @@ type ApiPostVariant = {
   platform: string;
   content: string;
   updated_at: string;
+};
+
+type ApiPublishJob = {
+  id: number;
+  article_id: number;
+  platform: string;
+  scheduled_for: string;
+  status: string;
+  retries: number;
+  external_id: string | null;
 };
 
 /**
@@ -187,7 +199,9 @@ export type ArticleDraftRecord = {
   title: string;
   summary: string;
   body: string;
+  storyIds: number[];
   storyKeys: string[];
+  generationNote: string | null;
   status: string;
   storyCount: number;
   variantCount: number;
@@ -204,6 +218,36 @@ export type PostVariantRecord = {
   platform: string;
   content: string;
   updatedAt: string;
+};
+
+/**
+ * Request payload for article generation.
+ */
+export type GenerateDailyArticlePayload = {
+  targetDate: string;
+  storyIds?: number[];
+  generationNote?: string;
+};
+
+/**
+ * Publish job model used by the draft center.
+ */
+export type PublishJobRecord = {
+  id: number;
+  articleId: number;
+  platform: string;
+  scheduledFor: string;
+  status: string;
+  retries: number;
+  externalId: string | null;
+};
+
+/**
+ * Request payload for creating publish jobs.
+ */
+export type PublishArticlePayload = {
+  platforms: string[];
+  scheduledFor: string;
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -282,7 +326,9 @@ function mapArticleDraft(apiArticle: ApiArticleDraft): ArticleDraftRecord {
     title: apiArticle.title,
     summary: apiArticle.summary,
     body: apiArticle.body,
+    storyIds: apiArticle.story_ids,
     storyKeys: apiArticle.story_keys,
+    generationNote: apiArticle.generation_note,
     status: apiArticle.status,
     storyCount: apiArticle.story_count,
     variantCount: apiArticle.variant_count,
@@ -298,6 +344,18 @@ function mapPostVariant(apiVariant: ApiPostVariant): PostVariantRecord {
     platform: apiVariant.platform,
     content: apiVariant.content,
     updatedAt: apiVariant.updated_at,
+  };
+}
+
+function mapPublishJob(apiJob: ApiPublishJob): PublishJobRecord {
+  return {
+    id: apiJob.id,
+    articleId: apiJob.article_id,
+    platform: apiJob.platform,
+    scheduledFor: apiJob.scheduled_for,
+    status: apiJob.status,
+    retries: apiJob.retries,
+    externalId: apiJob.external_id,
   };
 }
 
@@ -388,11 +446,19 @@ export async function fetchArticleDrafts(): Promise<ArticleDraftRecord[]> {
 }
 
 /**
- * Generates or refreshes the daily digest for a given date.
+ * Generates or refreshes the daily digest for a given date and story scope.
  */
-export async function generateDailyArticle(targetDate: string): Promise<ArticleDraftRecord> {
-  const apiArticle = await requestJson<ApiArticleDraft>(`/articles/generate/daily?target_date=${targetDate}`, {
+export async function generateDailyArticle(payload: GenerateDailyArticlePayload): Promise<ArticleDraftRecord> {
+  const apiArticle = await requestJson<ApiArticleDraft>("/articles/generate/daily", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      target_date: payload.targetDate,
+      story_ids: payload.storyIds,
+      generation_note: payload.generationNote,
+    }),
   });
   return mapArticleDraft(apiArticle);
 }
@@ -403,4 +469,29 @@ export async function generateDailyArticle(targetDate: string): Promise<ArticleD
 export async function fetchArticleVariants(articleId: number): Promise<PostVariantRecord[]> {
   const apiVariants = await requestJson<ApiPostVariant[]>(`/articles/${articleId}/variants`);
   return apiVariants.map(mapPostVariant);
+}
+
+/**
+ * Loads publish jobs created for article review and scheduling.
+ */
+export async function fetchPublishJobs(): Promise<PublishJobRecord[]> {
+  const apiJobs = await requestJson<ApiPublishJob[]>("/publish-jobs");
+  return apiJobs.map(mapPublishJob);
+}
+
+/**
+ * Creates publish jobs for the selected article and platforms.
+ */
+export async function publishArticle(articleId: number, payload: PublishArticlePayload): Promise<PublishJobRecord[]> {
+  const response = await requestJson<{ jobs: ApiPublishJob[] }>(`/articles/${articleId}/publish`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      platforms: payload.platforms,
+      scheduled_for: payload.scheduledFor,
+    }),
+  });
+  return response.jobs.map(mapPublishJob);
 }

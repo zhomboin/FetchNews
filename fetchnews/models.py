@@ -142,7 +142,9 @@ class ArticleDraft(Base):
     summary: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=ArticleStatus.DRAFT)
+    story_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     story_keys: Mapped[list[str]] = mapped_column(JSON, default=list)
+    generation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

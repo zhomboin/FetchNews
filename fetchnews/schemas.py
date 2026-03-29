@@ -91,9 +91,17 @@ class StoryResponse(StoryCreatePayload):
     status: str
 
 
+class GenerateDailyArticleRequest(BaseModel):
+    target_date: date
+    story_ids: list[int] | None = None
+    generation_note: str | None = None
+
+
 class ArticleDraftResponse(ArticleDraftPayload):
     id: int
     status: str
+    story_ids: list[int] = Field(default_factory=list)
+    generation_note: str | None = None
     story_count: int
     variant_count: int
     created_at: datetime

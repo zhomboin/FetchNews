@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -10,24 +9,12 @@ from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
-from fetchnews.models import (
-    ArticleDraft,
-    IngestRun,
-    NormalizedItemRecord,
-    PublishJob,
-    PublishJobStatus,
-    Story,
-    StoryStatus,
-)
-from fetchnews.pipeline.article_service import (
-    article_to_response,
-    generate_and_persist_daily_digest,
-    list_article_variants,
-    list_articles,
-)
+from fetchnews.models import ArticleDraft, IngestRun, NormalizedItemRecord, PublishJob, PublishJobStatus, Story, StoryStatus
+from fetchnews.pipeline.article_service import article_to_response, generate_and_persist_daily_digest, list_article_variants, list_articles
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import (
     ArticleDraftResponse,
+    GenerateDailyArticleRequest,
     IngestRunRequest,
     IngestRunResponse,
     NormalizedItem,
@@ -170,8 +157,16 @@ def create_app(settings: Settings | None = None, connector_overrides: dict[str, 
         return {"id": story.id, "status": story.status}
 
     @app.post("/articles/generate/daily", response_model=ArticleDraftResponse)
-    def generate_daily_article(target_date: date, db: Session = Depends(get_db)) -> ArticleDraftResponse:
-        article = generate_and_persist_daily_digest(db, target_date)
+    def generate_daily_article(payload: GenerateDailyArticleRequest, db: Session = Depends(get_db)) -> ArticleDraftResponse:
+        try:
+            article = generate_and_persist_daily_digest(
+                db,
+                target_date=payload.target_date,
+                story_ids=payload.story_ids,
+                generation_note=payload.generation_note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         db.commit()
         return article
 

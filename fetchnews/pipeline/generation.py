@@ -5,7 +5,11 @@ from datetime import date
 from fetchnews.schemas import ArticleDraftPayload, DailyDigest, StoryCandidate
 
 
-def generate_daily_digest(target_date: date, stories: list[StoryCandidate]) -> DailyDigest:
+def generate_daily_digest(
+    target_date: date,
+    stories: list[StoryCandidate],
+    generation_note: str | None = None,
+) -> DailyDigest:
     ordered = sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
     body_sections: list[str] = []
     for index, story in enumerate(ordered, start=1):
@@ -20,11 +24,15 @@ def generate_daily_digest(target_date: date, stories: list[StoryCandidate]) -> D
 
     story_count = len(ordered)
     summary = f"今日整理 {story_count} 条高价值 AI 资讯，重点关注模型能力、开源工具链与基础设施更新。"
+    body = "\n\n".join(body_sections) if body_sections else "今日暂无通过审核的 AI 资讯。"
+    if generation_note:
+        body = f"编辑说明：{generation_note}\n\n{body}"
+
     article = ArticleDraftPayload(
         target_date=target_date,
         title=f"AI 资讯日报 {target_date.isoformat()}",
         summary=summary,
-        body="\n\n".join(body_sections) if body_sections else "今日暂无通过审核的 AI 资讯。",
+        body=body,
         story_keys=[story.story_key for story in ordered],
     )
 
