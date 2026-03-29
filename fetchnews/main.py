@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
 from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
-from fetchnews.models import ArticleDraft, IngestRun, NormalizedItemRecord, PublishJob, Story, StoryStatus
+from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, NormalizedItemRecord, PublishJob, PublishJobStatus, Story, StoryStatus
 from fetchnews.pipeline.article_service import article_to_response, generate_and_persist_daily_digest, list_article_variants, list_articles
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.publishing.service import (
@@ -27,6 +28,7 @@ from fetchnews.schemas import (
     IngestRunRequest,
     IngestRunResponse,
     NormalizedItem,
+    OpsSummaryResponse,
     PipelineRebuildResponse,
     PostVariantResponse,
     PublishDispatchResponse,
@@ -98,6 +100,71 @@ def create_app(
         articles = db.scalar(select(func.count()).select_from(ArticleDraft)) or 0
         jobs = db.scalar(select(func.count()).select_from(PublishJob)) or 0
         return {"stories": stories, "articles": articles, "publish_jobs": jobs}
+
+    @app.get("/ops/summary", response_model=OpsSummaryResponse)
+    def ops_summary(db: Session = Depends(get_db)) -> OpsSummaryResponse:
+        ingest_runs_total = db.scalar(select(func.count()).select_from(IngestRun)) or 0
+        ingest_runs_failed = db.scalar(
+            select(func.count())
+            .select_from(IngestRun)
+            .where(IngestRun.status.in_([IngestRunStatus.FAILED, IngestRunStatus.COMPLETED_WITH_ERRORS]))
+        ) or 0
+        items_ingested_total = db.scalar(select(func.coalesce(func.sum(IngestRun.items_ingested), 0))) or 0
+        stories_total = db.scalar(select(func.count()).select_from(Story)) or 0
+        stories_approved = db.scalar(
+            select(func.count()).select_from(Story).where(Story.status == StoryStatus.APPROVED)
+        ) or 0
+        stories_pending = db.scalar(
+            select(func.count()).select_from(Story).where(Story.status == StoryStatus.PENDING)
+        ) or 0
+        articles_total = db.scalar(select(func.count()).select_from(ArticleDraft)) or 0
+        articles_ready = db.scalar(
+            select(func.count())
+            .select_from(ArticleDraft)
+            .where(ArticleDraft.status.in_([ArticleStatus.READY, ArticleStatus.SCHEDULED]))
+        ) or 0
+        articles_published = db.scalar(
+            select(func.count()).select_from(ArticleDraft).where(ArticleDraft.status == ArticleStatus.PUBLISHED)
+        ) or 0
+        articles_failed = db.scalar(
+            select(func.count()).select_from(ArticleDraft).where(ArticleDraft.status == ArticleStatus.FAILED)
+        ) or 0
+        publish_jobs_total = db.scalar(select(func.count()).select_from(PublishJob)) or 0
+        publish_jobs_scheduled = db.scalar(
+            select(func.count()).select_from(PublishJob).where(PublishJob.status == PublishJobStatus.SCHEDULED)
+        ) or 0
+        publish_jobs_published = db.scalar(
+            select(func.count()).select_from(PublishJob).where(PublishJob.status == PublishJobStatus.PUBLISHED)
+        ) or 0
+        publish_jobs_failed = db.scalar(
+            select(func.count()).select_from(PublishJob).where(PublishJob.status == PublishJobStatus.FAILED)
+        ) or 0
+        terminal_jobs = publish_jobs_published + publish_jobs_failed
+        publish_success_rate = publish_jobs_published / terminal_jobs if terminal_jobs else 0.0
+        due_publish_jobs = db.scalar(
+            select(func.count())
+            .select_from(PublishJob)
+            .where(PublishJob.status == PublishJobStatus.SCHEDULED)
+            .where(PublishJob.scheduled_for <= datetime.now(UTC))
+        ) or 0
+        return OpsSummaryResponse(
+            ingest_runs_total=ingest_runs_total,
+            ingest_runs_failed=ingest_runs_failed,
+            items_ingested_total=items_ingested_total,
+            stories_total=stories_total,
+            stories_approved=stories_approved,
+            stories_pending=stories_pending,
+            articles_total=articles_total,
+            articles_ready=articles_ready,
+            articles_published=articles_published,
+            articles_failed=articles_failed,
+            publish_jobs_total=publish_jobs_total,
+            publish_jobs_scheduled=publish_jobs_scheduled,
+            publish_jobs_published=publish_jobs_published,
+            publish_jobs_failed=publish_jobs_failed,
+            publish_success_rate=publish_success_rate,
+            due_publish_jobs=due_publish_jobs,
+        )
 
     @app.get("/sources")
     def list_sources() -> list[dict[str, object]]:

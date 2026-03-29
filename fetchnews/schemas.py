@@ -177,3 +177,21 @@ class PublishPollResponse(BaseModel):
     jobs_polled: int
     jobs_completed: int
     jobs_failed: int = 0
+
+class OpsSummaryResponse(BaseModel):
+    ingest_runs_total: int
+    ingest_runs_failed: int
+    items_ingested_total: int
+    stories_total: int
+    stories_approved: int
+    stories_pending: int
+    articles_total: int
+    articles_ready: int
+    articles_published: int
+    articles_failed: int
+    publish_jobs_total: int
+    publish_jobs_scheduled: int
+    publish_jobs_published: int
+    publish_jobs_failed: int
+    publish_success_rate: float
+    due_publish_jobs: int

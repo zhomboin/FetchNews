@@ -1666,3 +1666,83 @@ a {
 .publish-orchestration-row .button-primary {
   min-width: 132px;
 }
+.ops-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.ops-health-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.ops-risk-grid,
+.ops-runway {
+  margin-top: 0;
+}
+
+.ops-jobs-panel,
+.ops-articles-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.ops-article-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ops-article-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(64, 52, 37, 0.08);
+}
+
+.ops-article-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ops-article-row strong,
+.ops-article-row p,
+.ops-article-meta span {
+  margin: 0;
+}
+
+.ops-article-row p,
+.ops-article-meta span {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.ops-article-row p {
+  margin-top: 8px;
+}
+
+.ops-article-meta {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+@media (max-width: 1180px) {
+  .ops-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .ops-article-row {
+    flex-direction: column;
+  }
+
+  .ops-article-meta {
+    justify-items: start;
+  }
+}

@@ -607,3 +607,72 @@ export async function pollPublishJobs(): Promise<PublishPollResult> {
   });
   return mapPublishPollResult(apiResult);
 }
+type ApiOpsSummary = {
+  ingest_runs_total: number;
+  ingest_runs_failed: number;
+  items_ingested_total: number;
+  stories_total: number;
+  stories_approved: number;
+  stories_pending: number;
+  articles_total: number;
+  articles_ready: number;
+  articles_published: number;
+  articles_failed: number;
+  publish_jobs_total: number;
+  publish_jobs_scheduled: number;
+  publish_jobs_published: number;
+  publish_jobs_failed: number;
+  publish_success_rate: number;
+  due_publish_jobs: number;
+};
+
+/**
+ * Aggregated operations metrics used by the real dashboard.
+ */
+export type OpsSummaryRecord = {
+  ingestRunsTotal: number;
+  ingestRunsFailed: number;
+  itemsIngestedTotal: number;
+  storiesTotal: number;
+  storiesApproved: number;
+  storiesPending: number;
+  articlesTotal: number;
+  articlesReady: number;
+  articlesPublished: number;
+  articlesFailed: number;
+  publishJobsTotal: number;
+  publishJobsScheduled: number;
+  publishJobsPublished: number;
+  publishJobsFailed: number;
+  publishSuccessRate: number;
+  duePublishJobs: number;
+};
+
+function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
+  return {
+    ingestRunsTotal: apiSummary.ingest_runs_total,
+    ingestRunsFailed: apiSummary.ingest_runs_failed,
+    itemsIngestedTotal: apiSummary.items_ingested_total,
+    storiesTotal: apiSummary.stories_total,
+    storiesApproved: apiSummary.stories_approved,
+    storiesPending: apiSummary.stories_pending,
+    articlesTotal: apiSummary.articles_total,
+    articlesReady: apiSummary.articles_ready,
+    articlesPublished: apiSummary.articles_published,
+    articlesFailed: apiSummary.articles_failed,
+    publishJobsTotal: apiSummary.publish_jobs_total,
+    publishJobsScheduled: apiSummary.publish_jobs_scheduled,
+    publishJobsPublished: apiSummary.publish_jobs_published,
+    publishJobsFailed: apiSummary.publish_jobs_failed,
+    publishSuccessRate: apiSummary.publish_success_rate,
+    duePublishJobs: apiSummary.due_publish_jobs,
+  };
+}
+
+/**
+ * Loads aggregated ingestion and publishing metrics for the ops dashboard.
+ */
+export async function fetchOpsSummary(): Promise<OpsSummaryRecord> {
+  const apiSummary = await requestJson<ApiOpsSummary>("/ops/summary");
+  return mapOpsSummary(apiSummary);
+}

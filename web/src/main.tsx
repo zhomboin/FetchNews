@@ -1,11 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
 import { ArticlesPage } from "./features/articles/articles-page";
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
-import { PreviewDashboard } from "./features/preview/preview-dashboard";
+import { OpsDashboardPage } from "./features/ops/ops-dashboard-page";
 import { StoriesPage } from "./features/stories/stories-page";
 import { fetchHealth } from "./lib/api";
 import "./styles.css";
@@ -18,11 +18,10 @@ const NAV_SECTIONS = [
   { path: "/ingestion", label: "采集运行" },
   { path: "/stories", label: "聚类结果" },
   { path: "/articles", label: "草稿中心" },
-  { path: "/publishing", label: "发布与日志" },
-];
+  { path: "/publishing", label: "发布运维" },
+] as const;
 
 function Shell(): React.JSX.Element {
-  const location = useLocation();
   const [health, setHealth] = React.useState(DEFAULT_HEALTH_STATUS);
 
   React.useEffect(() => {
@@ -62,12 +61,12 @@ function Shell(): React.JSX.Element {
 
       <main className="console-main">
         <Routes>
-          <Route path="/" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/" element={<OpsDashboardPage health={health} mode="overview" />} />
           <Route path="/ingestion" element={<IngestionRunsPage health={health} />} />
           <Route path="/stories" element={<StoriesPage health={health} />} />
           <Route path="/articles" element={<ArticlesPage health={health} />} />
-          <Route path="/publishing" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
-          <Route path="*" element={<PreviewDashboard health={health} currentPath={location.pathname} />} />
+          <Route path="/publishing" element={<OpsDashboardPage health={health} mode="publishing" />} />
+          <Route path="*" element={<OpsDashboardPage health={health} mode="overview" />} />
         </Routes>
       </main>
     </div>

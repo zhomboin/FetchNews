@@ -392,3 +392,88 @@ def test_publish_dispatch_and_poll_complete_jobs() -> None:
         article_detail = client.get(f"/articles/{article_id}")
         assert article_detail.status_code == 200
         assert article_detail.json()["status"] == "published"
+
+def test_ops_summary_reports_ingest_and_publish_metrics() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_ops.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={
+            "github": StubConnector(items=[_github_item()]),
+            "rss": StubConnector(items=[_openai_blog_item()]),
+        },
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["github-trending", "openai-blog"]})
+        assert ingest_response.status_code == 200
+
+        approved_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-1",
+                cluster_title="OpenAI publishes new evaluation workflow",
+                summary="Evaluation workflow update.",
+                score=9.2,
+                tags=["evaluation"],
+                source_links=["https://openai.com/blog/evals"],
+            ),
+        )
+        pending_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-2",
+                cluster_title="Community benchmark discussion trends upward",
+                summary="Community benchmark discussion.",
+                score=7.2,
+                tags=["community"],
+                source_links=["https://example.com/community-benchmark"],
+            ),
+        )
+        assert approved_story_response.status_code == 201
+        assert pending_story_response.status_code == 201
+
+        approved_story_id = approved_story_response.json()["id"]
+        assert client.post(f"/stories/{approved_story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-03-31"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat", "x"], "scheduled_for": "2026-03-31T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs = publish_response.json()["jobs"]
+        first_job_id = jobs[0]["id"]
+        second_job_id = jobs[1]["id"]
+
+        assert client.post(
+            f"/publish-jobs/{first_job_id}/result",
+            json={"status": "published", "external_id": "wx-metric-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{second_job_id}/result",
+            json={"status": "failed", "error_message": "platform rejected"},
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        summary_payload = summary_response.json()
+        assert summary_payload["ingest_runs_total"] == 1
+        assert summary_payload["items_ingested_total"] == 2
+        assert summary_payload["stories_total"] == 3
+        assert summary_payload["stories_approved"] >= 1
+        assert summary_payload["stories_pending"] >= 1
+        assert summary_payload["articles_total"] == 1
+        assert summary_payload["articles_failed"] == 1
+        assert summary_payload["publish_jobs_total"] == 2
+        assert summary_payload["publish_jobs_published"] == 1
+        assert summary_payload["publish_jobs_failed"] == 1
+        assert summary_payload["publish_success_rate"] == 0.5
