@@ -6,19 +6,20 @@ import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { ArticlesPage } from "./features/articles/articles-page";
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { OpsDashboardPage } from "./features/ops/ops-dashboard-page";
+import { OpsDetailPage } from "./features/ops/ops-detail-page";
 import { StoriesPage } from "./features/stories/stories-page";
 import { fetchHealth } from "./lib/api";
 import "./styles.css";
 
 const QUERY_CLIENT = new QueryClient();
-const DEFAULT_HEALTH_STATUS = "预览模式";
-const BACKEND_OFFLINE_STATUS = "预览模式 | 后端未连接";
+const DEFAULT_HEALTH_STATUS = "Preview mode";
+const BACKEND_OFFLINE_STATUS = "Preview mode | Backend offline";
 const NAV_SECTIONS = [
-  { path: "/", label: "总览" },
-  { path: "/ingestion", label: "采集运行" },
-  { path: "/stories", label: "聚类结果" },
-  { path: "/articles", label: "草稿中心" },
-  { path: "/publishing", label: "发布运维" },
+  { path: "/", label: "Overview" },
+  { path: "/ingestion", label: "Ingestion" },
+  { path: "/stories", label: "Stories" },
+  { path: "/articles", label: "Drafts" },
+  { path: "/publishing", label: "Publishing" },
 ] as const;
 
 function Shell(): React.JSX.Element {
@@ -53,9 +54,9 @@ function Shell(): React.JSX.Element {
         </nav>
 
         <div className="rail-foot">
-          <p>主题方向</p>
-          <strong>暖白金属极简</strong>
-          <span>企业秩序感 + 轻未来感</span>
+          <p>Visual baseline</p>
+          <strong>Warm metal minimalism</strong>
+          <span>Orderly, credible, restrained, and lightly futuristic.</span>
         </div>
       </aside>
 
@@ -66,6 +67,7 @@ function Shell(): React.JSX.Element {
           <Route path="/stories" element={<StoriesPage health={health} />} />
           <Route path="/articles" element={<ArticlesPage health={health} />} />
           <Route path="/publishing" element={<OpsDashboardPage health={health} mode="publishing" />} />
+          <Route path="/ops/details" element={<OpsDetailPage health={health} />} />
           <Route path="*" element={<OpsDashboardPage health={health} mode="overview" />} />
         </Routes>
       </main>

@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import {
   ArticleDraftRecord,
@@ -28,6 +29,8 @@ type OpsMetric = {
   value: string;
   note: string;
 };
+
+type DetailKind = "section" | "platform" | "source";
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -190,8 +193,52 @@ function getRecommendationTone(recommendation: FeedbackRecommendationRecord): "w
   return "calm";
 }
 
+function buildDetailPath(kind: DetailKind, target: string, failedOnly = false): string {
+  const searchParams = new URLSearchParams({ kind });
+  if (kind === "section") {
+    searchParams.set("section", target);
+  }
+  if (kind === "platform") {
+    searchParams.set("platform", target);
+  }
+  if (kind === "source") {
+    searchParams.set("source", target);
+  }
+  if (failedOnly) {
+    searchParams.set("failedOnly", "1");
+  }
+  return `/ops/details?${searchParams.toString()}`;
+}
+
+function buildRecommendationDetailPath(recommendation: FeedbackRecommendationRecord): string | null {
+  if (recommendation.category === "section") {
+    return buildDetailPath("section", recommendation.target);
+  }
+  if (recommendation.category === "platform") {
+    return buildDetailPath("platform", recommendation.target, true);
+  }
+  if (recommendation.category === "source") {
+    return buildDetailPath("source", recommendation.target, true);
+  }
+  return null;
+}
+
+function buildFailureDetailPath(group: FailureGroupRecord): string | null {
+  const target = group.targets[0];
+  if (!target) {
+    return null;
+  }
+  if (group.category === "publish") {
+    return buildDetailPath("platform", target, true);
+  }
+  if (group.category === "ingest") {
+    return buildDetailPath("source", target, true);
+  }
+  return null;
+}
+
 /**
- * Real operations dashboard for ingestion, diagnostics, and publishing health.
+ * Real operations dashboard for ingestion, diagnostics, publishing health, and drill-down navigation.
  */
 export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React.JSX.Element {
   const summaryQuery = useQuery({
@@ -361,6 +408,11 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                         <strong>{metric.totalStories}</strong>
                       </div>
                     </div>
+                    <div className="panel-link-row">
+                      <Link className="detail-link" to={buildDetailPath("section", metric.section)}>
+                        Open section detail
+                      </Link>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -380,23 +432,33 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
               <div className="empty-state">No actions recommended right now. Current review and publish signals look stable.</div>
             ) : (
               <div className="failure-group-list recommendation-list">
-                {feedbackRecommendations.map((recommendation) => (
-                  <article
-                    key={`${recommendation.category}-${recommendation.target}`}
-                    className="failure-group-card recommendation-card"
-                    data-tone={getRecommendationTone(recommendation)}
-                  >
-                    <div className="failure-group-head">
-                      <div>
-                        <p>{formatRecommendationCategory(recommendation.category)}</p>
-                        <strong>{recommendation.title}</strong>
+                {feedbackRecommendations.map((recommendation) => {
+                  const detailPath = buildRecommendationDetailPath(recommendation);
+                  return (
+                    <article
+                      key={`${recommendation.category}-${recommendation.target}`}
+                      className="failure-group-card recommendation-card"
+                      data-tone={getRecommendationTone(recommendation)}
+                    >
+                      <div className="failure-group-head">
+                        <div>
+                          <p>{formatRecommendationCategory(recommendation.category)}</p>
+                          <strong>{recommendation.title}</strong>
+                        </div>
+                        <span className="status-pill status-pending">{recommendation.signalCount}</span>
                       </div>
-                      <span className="status-pill status-pending">{recommendation.signalCount}</span>
-                    </div>
-                    <p className="source-governance-note">{recommendation.summary}</p>
-                    <p className="failure-suggestion">{recommendation.suggestion}</p>
-                  </article>
-                ))}
+                      <p className="source-governance-note">{recommendation.summary}</p>
+                      <p className="failure-suggestion">{recommendation.suggestion}</p>
+                      {detailPath ? (
+                        <div className="panel-link-row">
+                          <Link className="detail-link" to={detailPath}>
+                            Open recommendation detail
+                          </Link>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </article>
@@ -417,25 +479,35 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
             <div className="empty-state">No recent grouped failures. The current pipeline snapshot looks clean.</div>
           ) : (
             <div className="failure-group-list">
-              {failureGroups.map((group) => (
-                <article key={`${group.category}-${group.reason}`} className="failure-group-card" data-tone={getFailureTone(group)}>
-                  <div className="failure-group-head">
-                    <div>
-                      <p>{formatFailureCategory(group.category)}</p>
-                      <strong>{group.reason}</strong>
+              {failureGroups.map((group) => {
+                const detailPath = buildFailureDetailPath(group);
+                return (
+                  <article key={`${group.category}-${group.reason}`} className="failure-group-card" data-tone={getFailureTone(group)}>
+                    <div className="failure-group-head">
+                      <div>
+                        <p>{formatFailureCategory(group.category)}</p>
+                        <strong>{group.reason}</strong>
+                      </div>
+                      <span className="status-pill status-failed">{group.count}</span>
                     </div>
-                    <span className="status-pill status-failed">{group.count}</span>
-                  </div>
-                  <div className="failure-chip-list">
-                    {group.targets.map((target) => (
-                      <span key={`${group.reason}-${target}`} className="failure-target-chip">
-                        {target}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="failure-suggestion">{group.suggestion}</p>
-                </article>
-              ))}
+                    <div className="failure-chip-list">
+                      {group.targets.map((target) => (
+                        <span key={`${group.reason}-${target}`} className="failure-target-chip">
+                          {target}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="failure-suggestion">{group.suggestion}</p>
+                    {detailPath ? (
+                      <div className="panel-link-row">
+                        <Link className="detail-link" to={detailPath}>
+                          Open failure detail
+                        </Link>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           )}
         </article>
@@ -480,6 +552,11 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   <p className="platform-metric-note">
                     {metric.lastError ? `Latest error: ${metric.lastError}` : "No recent platform errors."}
                   </p>
+                  <div className="panel-link-row">
+                    <Link className="detail-link" to={buildDetailPath("platform", metric.platform, metric.failedJobs > 0)}>
+                      {metric.failedJobs > 0 ? "Open failed jobs" : "Open platform detail"}
+                    </Link>
+                  </div>
                 </article>
               ))}
             </div>
@@ -512,6 +589,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   <div className="ops-article-meta">
                     <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
                     <span>{job.errorMessage ?? `Retries: ${job.retries}`}</span>
+                    <Link className="detail-link detail-link-soft" to={buildDetailPath("platform", job.platform, job.status === "failed")}>
+                      Detail
+                    </Link>
                   </div>
                 </article>
               ))}
