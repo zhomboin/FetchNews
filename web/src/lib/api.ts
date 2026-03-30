@@ -1,5 +1,19 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+type ApiSourceSpec = {
+  slug: string;
+  label: string;
+  platform: string;
+  priority: string;
+  kind: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  effective_trust_score: number | null;
+  effective_score_multiplier: number | null;
+  feedback_signals: Record<string, number>;
+  governance_flags: string[];
+};
+
 type ApiIngestRunError = {
   source_slug: string;
   message: string;
@@ -186,6 +200,10 @@ export type SourceSpec = {
   kind: string;
   enabled: boolean;
   config: Record<string, unknown>;
+  effectiveTrustScore: number | null;
+  effectiveScoreMultiplier: number | null;
+  feedbackSignals: Record<string, number>;
+  governanceFlags: string[];
 };
 
 /**
@@ -468,6 +486,22 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function mapSourceSpec(apiSource: ApiSourceSpec): SourceSpec {
+  return {
+    slug: apiSource.slug,
+    label: apiSource.label,
+    platform: apiSource.platform,
+    priority: apiSource.priority,
+    kind: apiSource.kind,
+    enabled: apiSource.enabled,
+    config: apiSource.config,
+    effectiveTrustScore: apiSource.effective_trust_score,
+    effectiveScoreMultiplier: apiSource.effective_score_multiplier,
+    feedbackSignals: apiSource.feedback_signals,
+    governanceFlags: apiSource.governance_flags,
+  };
+}
+
 function mapIngestRunError(apiError: ApiIngestRunError): IngestRunError {
   return {
     sourceSlug: apiError.source_slug,
@@ -669,8 +703,9 @@ export function fetchHealth(): Promise<HealthResponse> {
 /**
  * Loads the enabled source catalog for manual ingestion.
  */
-export function fetchSourceSpecs(): Promise<SourceSpec[]> {
-  return requestJson<SourceSpec[]>("/sources");
+export async function fetchSourceSpecs(): Promise<SourceSpec[]> {
+  const apiSources = await requestJson<ApiSourceSpec[]>("/sources");
+  return apiSources.map(mapSourceSpec);
 }
 
 /**

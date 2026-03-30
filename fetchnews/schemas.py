@@ -16,6 +16,10 @@ class SourceSpec(BaseModel):
     kind: str
     enabled: bool = True
     config: dict = Field(default_factory=dict)
+    effective_trust_score: float | None = None
+    effective_score_multiplier: float | None = None
+    feedback_signals: dict = Field(default_factory=dict)
+    governance_flags: list[str] = Field(default_factory=list)
 
 
 class RawIngestedItem(BaseModel):

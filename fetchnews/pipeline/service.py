@@ -9,6 +9,8 @@ from fetchnews.models import NormalizedItemRecord, RawItem, Source, Story
 from fetchnews.pipeline.clustering import cluster_items
 from fetchnews.pipeline.normalize import normalize_raw_item
 from fetchnews.schemas import NormalizedItem, RawIngestedItem
+from fetchnews.sources.catalog import get_source_specs
+from fetchnews.sources.governance import annotate_source_specs, build_section_governance_feedback, build_source_governance_feedback
 
 
 def run_story_pipeline(session: Session) -> dict[str, int]:
@@ -21,8 +23,19 @@ def run_story_pipeline(session: Session) -> dict[str, int]:
         record.raw_item_id: record for record in session.scalars(select(NormalizedItemRecord)).all()
     }
 
+    source_specs = annotate_source_specs(session, get_source_specs())
+    source_spec_by_slug = {spec.slug: spec for spec in source_specs}
+    source_feedback = build_source_governance_feedback(session, source_specs)
+    section_feedback = build_section_governance_feedback(session)
+
     normalized_items: list[NormalizedItem] = []
     for raw_item, source in rows:
+        spec = source_spec_by_slug.get(source.slug)
+        source_config = dict(source.config)
+        if spec is not None:
+            source_config["trust_score"] = spec.effective_trust_score
+            source_config["score_multiplier"] = spec.effective_score_multiplier
+
         normalized = normalize_raw_item(
             RawIngestedItem(
                 source_slug=source.slug,
@@ -35,18 +48,38 @@ def run_story_pipeline(session: Session) -> dict[str, int]:
                 metadata=raw_item.payload,
             ),
             source_priority=source.priority,
-            source_config=source.config,
+            source_config=source_config,
         ).model_copy(update={"raw_item_id": raw_item.id})
+        normalized = _apply_source_governance_feedback(normalized, source_feedback.get(source.slug))
         normalized_items.append(normalized)
         _upsert_normalized_item(session, existing_normalized.get(raw_item.id), normalized)
 
-    story_candidates = cluster_items(normalized_items)
+    story_candidates = cluster_items(normalized_items, section_feedback=section_feedback)
     existing_stories = {story.story_key: story for story in session.scalars(select(Story)).all()}
     for candidate in story_candidates:
         _upsert_story(session, existing_stories.get(candidate.story_key), candidate)
 
     session.flush()
     return {"normalized_items": len(normalized_items), "stories": len(story_candidates)}
+
+
+def _apply_source_governance_feedback(
+    item: NormalizedItem,
+    feedback,
+) -> NormalizedItem:
+    if feedback is None:
+        return item
+
+    metadata = dict(item.metadata)
+    quality_flags = {str(flag) for flag in metadata.get("source_quality_flags", []) if str(flag)}
+    if feedback.governance_flags:
+        quality_flags.add("governance_feedback")
+    metadata["source_quality_flags"] = sorted(quality_flags)
+    metadata["source_governance_flags"] = list(feedback.governance_flags)
+    metadata["source_feedback_signals"] = feedback.feedback_signals()
+    metadata["source_trust_score"] = feedback.effective_trust_score
+    metadata["source_score_multiplier"] = feedback.effective_score_multiplier
+    return item.model_copy(update={"metadata": metadata})
 
 
 def _upsert_normalized_item(

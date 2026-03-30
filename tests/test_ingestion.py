@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from fetchnews.main import create_app
-from fetchnews.models import IngestRun, IngestRunStatus, NormalizedItemRecord, RawItem, Source, Story
+from fetchnews.models import IngestRun, IngestRunStatus, NormalizedItemRecord, RawItem, Source, Story, StoryStatus
 from fetchnews.schemas import RawIngestedItem
 from fetchnews.settings import Settings
 from fetchnews.tasks.worker import run_ingestion_job
@@ -181,3 +181,107 @@ def test_source_catalog_endpoint_returns_enabled_specs() -> None:
         payload = response.json()
         assert payload[0]["priority"] == "P0"
         assert {item["slug"] for item in payload}.issuperset({"github-trending", "openai-blog", "x-allowlist"})
+
+def _arxiv_item() -> RawIngestedItem:
+    return RawIngestedItem(
+        source_slug="arxiv-cs-ai",
+        external_id="paper-1",
+        title="Fresh arXiv benchmark release",
+        url="https://arxiv.org/abs/2603.12345",
+        author="Research Team",
+        published_at=datetime(2026, 3, 26, 9, 0, tzinfo=UTC),
+        content="A new benchmark paper introduces a research evaluation dataset.",
+        metadata={"category": "paper", "tags": ["research", "benchmark"]},
+    )
+
+
+def test_source_catalog_endpoint_includes_governance_feedback() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_source_feedback.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={"rss": StubConnector(error="feed timeout")},
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["openai-blog"]})
+        assert ingest_response.status_code == 200
+
+        with app.state.container.session_factory() as session:
+            session.add(
+                Story(
+                    story_key="source-feedback-openai-blog",
+                    cluster_title="OpenAI blog item still needs confirmation",
+                    summary="An item from the OpenAI blog is still pending review.",
+                    highlights=["Needs manual confirmation"],
+                    source_links=["https://openai.com/news/verification-needed"],
+                    tags=["openai-blog", "blog", "verification"],
+                    risk_flags=["secondary_sources_only"],
+                    score=5.1,
+                    item_count=1,
+                    status=StoryStatus.PENDING,
+                    first_seen_at=datetime(2026, 3, 26, 10, 0, tzinfo=UTC),
+                    last_seen_at=datetime(2026, 3, 26, 10, 0, tzinfo=UTC),
+                )
+            )
+            session.commit()
+
+        response = client.get("/sources")
+        assert response.status_code == 200
+        payload = response.json()
+        openai_blog = next(item for item in payload if item["slug"] == "openai-blog")
+
+        assert openai_blog["feedback_signals"]["failed_ingest_runs"] == 1
+        assert openai_blog["feedback_signals"]["pending_stories"] == 1
+        assert openai_blog["feedback_signals"]["flagged_stories"] == 1
+        assert openai_blog["effective_score_multiplier"] < openai_blog["config"]["score_multiplier"]
+        assert "ingest_failures" in openai_blog["governance_flags"]
+        assert "review_backlog" in openai_blog["governance_flags"]
+
+
+def test_ingest_pipeline_applies_section_feedback_to_story_ranking() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_story_feedback_ranking.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    connector_overrides = {
+        "github": StubConnector(items=[_github_item()]),
+        "arxiv": StubConnector(items=[_arxiv_item()]),
+    }
+    app = create_app(settings, connector_overrides=connector_overrides)
+
+    with app.state.container.session_factory() as session:
+        session.add(
+            Story(
+                story_key="existing-research-backlog",
+                cluster_title="Existing research item awaiting review",
+                summary="A research story is still pending review and source verification.",
+                highlights=["Pending manual review"],
+                source_links=["https://arxiv.org/abs/2501.00001"],
+                tags=["arxiv-cs-ai", "paper", "research"],
+                risk_flags=["secondary_sources_only"],
+                score=4.9,
+                item_count=1,
+                status=StoryStatus.PENDING,
+                first_seen_at=datetime(2026, 3, 25, 9, 0, tzinfo=UTC),
+                last_seen_at=datetime(2026, 3, 25, 9, 0, tzinfo=UTC),
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["github-trending", "arxiv-cs-ai"]})
+        assert ingest_response.status_code == 200
+
+        stories_response = client.get("/stories")
+        assert stories_response.status_code == 200
+        stories = stories_response.json()
+
+        research_story = next(story for story in stories if story["cluster_title"] == "Fresh arXiv benchmark release")
+        github_story = next(story for story in stories if story["cluster_title"] == "OpenAI releases agent benchmark toolkit")
+
+        assert "section_feedback_watch" in research_story["risk_flags"]
+        assert research_story["score"] < github_story["score"]
