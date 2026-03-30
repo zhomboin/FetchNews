@@ -765,3 +765,258 @@ def test_ops_summary_includes_section_metrics_and_feedback_recommendations() -> 
             recommendation["category"] == "platform" and recommendation["target"] == "x"
             for recommendation in recommendations
         )
+def test_publish_job_feedback_writeback_and_ops_engagement_metrics() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_publish_feedback.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-feedback-metrics-1",
+                cluster_title="OpenAI ships a distribution analytics update",
+                summary="Distribution analytics should track clicks and interactions after publishing.",
+                score=9.0,
+                tags=["publishing", "analytics"],
+                source_links=["https://openai.com/blog/distribution-analytics"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-03"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat", "x"], "scheduled_for": "2026-05-03T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs = publish_response.json()["jobs"]
+        wechat_job_id = next(job["id"] for job in jobs if job["platform"] == "wechat")
+        x_job_id = next(job["id"] for job in jobs if job["platform"] == "x")
+
+        assert client.post(
+            f"/publish-jobs/{wechat_job_id}/result",
+            json={"status": "published", "external_id": "wx-feedback-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{x_job_id}/result",
+            json={"status": "published", "external_id": "x-feedback-1"},
+        ).status_code == 200
+
+        feedback_response = client.post(
+            f"/publish-jobs/{wechat_job_id}/feedback",
+            json={
+                "impressions": 1200,
+                "opens": 460,
+                "clicks": 125,
+                "interactions": 54,
+            },
+        )
+        assert feedback_response.status_code == 200
+        feedback_payload = feedback_response.json()
+        assert feedback_payload["performance_metrics"] == {
+            "impressions": 1200,
+            "opens": 460,
+            "clicks": 125,
+            "interactions": 54,
+        }
+        assert feedback_payload["metrics_recorded_at"] is not None
+
+        second_feedback_response = client.post(
+            f"/publish-jobs/{x_job_id}/feedback",
+            json={
+                "impressions": 800,
+                "clicks": 64,
+                "interactions": 20,
+            },
+        )
+        assert second_feedback_response.status_code == 200
+
+        jobs_response = client.get("/publish-jobs")
+        assert jobs_response.status_code == 200
+        jobs_payload = {job["id"]: job for job in jobs_response.json()}
+        assert jobs_payload[wechat_job_id]["performance_metrics"]["clicks"] == 125
+        assert jobs_payload[x_job_id]["performance_metrics"]["interactions"] == 20
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        summary_payload = summary_response.json()
+        assert summary_payload["engagement_impressions_total"] == 2000
+        assert summary_payload["engagement_opens_total"] == 460
+        assert summary_payload["engagement_clicks_total"] == 189
+        assert summary_payload["engagement_interactions_total"] == 74
+
+        platform_metrics = {
+            metric["platform"]: metric for metric in summary_payload["publish_platform_metrics"]
+        }
+        assert platform_metrics["wechat"]["engagement_impressions"] == 1200
+        assert platform_metrics["wechat"]["engagement_opens"] == 460
+        assert platform_metrics["wechat"]["engagement_clicks"] == 125
+        assert platform_metrics["wechat"]["engagement_interactions"] == 54
+        assert platform_metrics["wechat"]["click_through_rate"] == 125 / 1200
+        assert platform_metrics["wechat"]["interaction_rate"] == 54 / 1200
+        assert platform_metrics["x"]["engagement_clicks"] == 64
+        assert platform_metrics["x"]["interaction_rate"] == 20 / 800
+
+
+def test_digest_generation_prioritizes_high_engagement_sections() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_section_engagement_ranking.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        open_source_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-section-open-source",
+                cluster_title="Open-source agent runtime ships on GitHub",
+                summary="A new agent runtime has been published as an open-source project.",
+                score=9.2,
+                tags=["github", "agent", "runtime"],
+                source_links=["https://github.com/example/agent-runtime"],
+            ),
+        )
+        research_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-section-research",
+                cluster_title="New arXiv reasoning benchmark improves evaluation",
+                summary="A reasoning benchmark paper improves evaluation quality.",
+                score=8.8,
+                tags=["paper", "benchmark", "reasoning"],
+                source_links=["https://arxiv.org/abs/5678.1234"],
+            ),
+        )
+        assert open_source_story_response.status_code == 201
+        assert research_story_response.status_code == 201
+
+        open_source_story_id = open_source_story_response.json()["id"]
+        research_story_id = research_story_response.json()["id"]
+        assert client.post(f"/stories/{open_source_story_id}/approve").status_code == 200
+        assert client.post(f"/stories/{research_story_id}/approve").status_code == 200
+
+        seed_article_response = client.post(
+            "/articles/generate/daily",
+            json={
+                "target_date": "2026-05-04",
+                "story_ids": [research_story_id],
+                "generation_note": "Seed engagement history for research.",
+            },
+        )
+        assert seed_article_response.status_code == 200
+        seed_article_id = seed_article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{seed_article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": "2026-05-04T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        publish_job_id = publish_response.json()["jobs"][0]["id"]
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/result",
+            json={"status": "published", "external_id": "wx-section-ranking-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/feedback",
+            json={
+                "impressions": 1500,
+                "opens": 520,
+                "clicks": 180,
+                "interactions": 96,
+            },
+        ).status_code == 200
+
+        digest_response = client.post(
+            "/articles/generate/daily",
+            json={
+                "target_date": "2026-05-05",
+                "story_ids": [open_source_story_id, research_story_id],
+                "generation_note": "Validate section momentum ordering.",
+            },
+        )
+        assert digest_response.status_code == 200
+        digest_payload = digest_response.json()
+
+        assert digest_payload["sections"][0] == "research"
+        assert digest_payload["story_keys"][0] == "story-phase06-section-research"
+
+
+def test_ops_summary_exposes_high_performing_section_metrics() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_section_engagement_metrics.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase06-section-metrics",
+                cluster_title="Reasoning benchmark paper keeps momentum",
+                summary="A research paper continues to drive strong clicks after publishing.",
+                score=8.6,
+                tags=["paper", "benchmark", "reasoning"],
+                source_links=["https://arxiv.org/abs/2468.1357"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-06"},
+        )
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": "2026-05-06T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        publish_job_id = publish_response.json()["jobs"][0]["id"]
+
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/result",
+            json={"status": "published", "external_id": "wx-section-metrics-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/feedback",
+            json={
+                "impressions": 900,
+                "clicks": 117,
+                "interactions": 55,
+            },
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        summary_payload = summary_response.json()
+
+        section_metrics = {
+            metric["section"]: metric for metric in summary_payload["section_review_metrics"]
+        }
+        assert section_metrics["research"]["engagement_impressions"] == 900
+        assert section_metrics["research"]["engagement_clicks"] == 117
+        assert section_metrics["research"]["click_through_rate"] == 117 / 900
+        assert section_metrics["research"]["momentum_tier"] == "hot"

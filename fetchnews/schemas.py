@@ -208,6 +208,13 @@ class PublishJobResultRequest(BaseModel):
     error_message: str | None = None
 
 
+class PublishJobFeedbackRequest(BaseModel):
+    impressions: int | None = Field(default=None, ge=0)
+    opens: int | None = Field(default=None, ge=0)
+    clicks: int | None = Field(default=None, ge=0)
+    interactions: int | None = Field(default=None, ge=0)
+
+
 class PublishJobResponse(BaseModel):
     id: int
     article_id: int
@@ -218,6 +225,8 @@ class PublishJobResponse(BaseModel):
     external_id: str | None = None
     error_message: str | None = None
     provider_job_id: str | None = None
+    performance_metrics: dict[str, int] = Field(default_factory=dict)
+    metrics_recorded_at: datetime | None = None
     updated_at: datetime
 
 
@@ -247,6 +256,12 @@ class PublishPlatformMetricResponse(BaseModel):
     published_jobs: int
     failed_jobs: int
     success_rate: float
+    engagement_impressions: int = 0
+    engagement_opens: int = 0
+    engagement_clicks: int = 0
+    engagement_interactions: int = 0
+    click_through_rate: float = 0.0
+    interaction_rate: float = 0.0
     last_error: str | None = None
 
 
@@ -257,6 +272,13 @@ class SectionReviewMetricResponse(BaseModel):
     approved_stories: int
     pending_stories: int
     flagged_stories: int
+    engagement_impressions: int = 0
+    engagement_opens: int = 0
+    engagement_clicks: int = 0
+    engagement_interactions: int = 0
+    click_through_rate: float = 0.0
+    interaction_rate: float = 0.0
+    momentum_tier: str = "steady"
 
 
 class FeedbackRecommendationResponse(BaseModel):
@@ -285,6 +307,10 @@ class OpsSummaryResponse(BaseModel):
     publish_jobs_failed: int
     publish_success_rate: float
     due_publish_jobs: int
+    engagement_impressions_total: int = 0
+    engagement_opens_total: int = 0
+    engagement_clicks_total: int = 0
+    engagement_interactions_total: int = 0
     recent_failure_groups: list[FailureGroupResponse] = Field(default_factory=list)
     publish_platform_metrics: list[PublishPlatformMetricResponse] = Field(default_factory=list)
     section_review_metrics: list[SectionReviewMetricResponse] = Field(default_factory=list)

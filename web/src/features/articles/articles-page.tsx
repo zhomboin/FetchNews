@@ -21,6 +21,7 @@ import {
   pollPublishJobs,
   publishArticle,
   retryPublishJob,
+  writePublishJobFeedback,
   writePublishJobResult,
 } from "../../lib/api";
 
@@ -50,6 +51,8 @@ type ArticleMetrics = {
 };
 
 type ScopeMode = "allApproved" | "custom";
+type PublishFeedbackField = "impressions" | "opens" | "clicks" | "interactions";
+type PublishFeedbackFormState = Record<PublishFeedbackField, string>;
 
 function getTodayDateInput(): string {
   const now = new Date();
@@ -135,6 +138,41 @@ function toUtcIsoString(value: string): string | null {
   return parsed.toISOString();
 }
 
+function buildFeedbackFormState(job: PublishJobRecord): PublishFeedbackFormState {
+  return {
+    impressions: `${job.performanceMetrics.impressions ?? ""}`,
+    opens: `${job.performanceMetrics.opens ?? ""}`,
+    clicks: `${job.performanceMetrics.clicks ?? ""}`,
+    interactions: `${job.performanceMetrics.interactions ?? ""}`,
+  };
+}
+
+function parseOptionalMetric(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return Math.trunc(parsed);
+}
+
+function buildFeedbackPayload(state: PublishFeedbackFormState): {
+  impressions?: number;
+  opens?: number;
+  clicks?: number;
+  interactions?: number;
+} {
+  return {
+    impressions: parseOptionalMetric(state.impressions),
+    opens: parseOptionalMetric(state.opens),
+    clicks: parseOptionalMetric(state.clicks),
+    interactions: parseOptionalMetric(state.interactions),
+  };
+}
+
+function hasFeedbackPayload(state: PublishFeedbackFormState): boolean {
+  return Object.values(buildFeedbackPayload(state)).some((value) => value !== undefined);
+}
+
 async function generateByPeriod(
   periodType: ArticlePeriodType,
   payload: { targetDate: string; storyIds?: number[]; generationNote?: string },
@@ -152,6 +190,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
   const [selectedStoryIds, setSelectedStoryIds] = React.useState<number[]>([]);
   const [generationNote, setGenerationNote] = React.useState("");
   const [selectedArticleId, setSelectedArticleId] = React.useState<number | null>(null);
+  const [feedbackForms, setFeedbackForms] = React.useState<Record<number, PublishFeedbackFormState>>({});
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<string[]>([...PUBLISH_PLATFORMS]);
   const [scheduledFor, setScheduledFor] = React.useState(getDefaultScheduleInput());
   const articlesQuery = useQuery({
@@ -232,6 +271,12 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     onSuccess: () => invalidateArticleWorkspace(),
   });
 
+  const feedbackMutation = useMutation({
+    mutationFn: ({ jobId, state }: { jobId: number; state: PublishFeedbackFormState }) =>
+      writePublishJobFeedback(jobId, buildFeedbackPayload(state)),
+    onSuccess: () => invalidateArticleWorkspace(),
+  });
+
   const articles = articlesQuery.data ?? [];
   const allStories = storiesQuery.data ?? [];
   const approvedStories = allStories.filter((story) => story.status === "approved");
@@ -282,7 +327,8 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     pollMutation.isPending ||
     markPublishedMutation.isPending ||
     markFailedMutation.isPending ||
-    retryMutation.isPending;
+    retryMutation.isPending ||
+    feedbackMutation.isPending;
 
   function toggleSelectedStory(storyId: number): void {
     setSelectedStoryIds((current) =>
@@ -294,6 +340,20 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     setSelectedPlatforms((current) =>
       current.includes(platform) ? current.filter((item) => item !== platform) : [...current, platform],
     );
+  }
+
+  function readFeedbackForm(job: PublishJobRecord): PublishFeedbackFormState {
+    return feedbackForms[job.id] ?? buildFeedbackFormState(job);
+  }
+
+  function updateFeedbackForm(jobId: number, field: PublishFeedbackField, value: string): void {
+    setFeedbackForms((current) => ({
+      ...current,
+      [jobId]: {
+        ...(current[jobId] ?? { impressions: "", opens: "", clicks: "", interactions: "" }),
+        [field]: value,
+      },
+    }));
   }
 
   function renderPublishJobActions(job: PublishJobRecord): React.JSX.Element {
@@ -323,6 +383,53 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     return (
       <div className="publish-job-actions publish-job-actions-readonly">
         <span>结果已回写，无需额外操作。</span>
+      </div>
+    );
+  }
+
+  function renderPublishJobFeedback(job: PublishJobRecord): React.JSX.Element | null {
+    if (job.status !== "published") return null;
+    const formState = readFeedbackForm(job);
+    return (
+      <div className="publish-feedback-panel">
+        <div className="publish-feedback-grid">
+          {([
+            ["impressions", "Impressions"],
+            ["opens", "Opens"],
+            ["clicks", "Clicks"],
+            ["interactions", "Interactions"],
+          ] as const).map(([field, label]) => (
+            <label key={`${job.id}-${field}`} className="field-shell publish-feedback-field">
+              <span>{label}</span>
+              <input
+                type="number"
+                min="0"
+                inputMode="numeric"
+                value={formState[field]}
+                onChange={(event) => updateFeedbackForm(job.id, field, event.target.value)}
+                placeholder="0"
+              />
+            </label>
+          ))}
+        </div>
+        <div className="publish-job-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => setFeedbackForms((current) => ({ ...current, [job.id]: buildFeedbackFormState(job) }))}
+            disabled={feedbackMutation.isPending}
+          >
+            Reset metrics
+          </button>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => feedbackMutation.mutate({ jobId: job.id, state: formState })}
+            disabled={feedbackMutation.isPending || !hasFeedbackPayload(formState)}
+          >
+            {feedbackMutation.isPending ? "Saving..." : "Save metrics"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -726,6 +833,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
                           {job.externalId ? <span className="publish-job-note">外部 ID：{job.externalId}</span> : null}
                           {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                         </div>
+                        {renderPublishJobFeedback(job)}
                         {renderPublishJobActions(job)}
                       </article>
                     ))

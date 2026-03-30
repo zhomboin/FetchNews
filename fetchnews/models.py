@@ -187,6 +187,8 @@ class PublishJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_job_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     provider_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    performance_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

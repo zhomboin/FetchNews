@@ -181,6 +181,32 @@ def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     return publish_job_to_response(job)
 
 
+def write_publish_job_feedback(
+    session: Session,
+    job: PublishJob,
+    *,
+    impressions: int | None = None,
+    opens: int | None = None,
+    clicks: int | None = None,
+    interactions: int | None = None,
+    metrics_recorded_at: datetime | None = None,
+) -> PublishJobResponse:
+    metrics: dict[str, int] = {}
+    if impressions is not None:
+        metrics["impressions"] = impressions
+    if opens is not None:
+        metrics["opens"] = opens
+    if clicks is not None:
+        metrics["clicks"] = clicks
+    if interactions is not None:
+        metrics["interactions"] = interactions
+
+    job.performance_metrics = metrics
+    job.metrics_recorded_at = metrics_recorded_at or datetime.now(UTC)
+    session.flush()
+    return publish_job_to_response(job)
+
+
 def publish_job_to_response(job: PublishJob) -> PublishJobResponse:
     return PublishJobResponse(
         id=job.id,
@@ -192,6 +218,8 @@ def publish_job_to_response(job: PublishJob) -> PublishJobResponse:
         external_id=job.external_id,
         error_message=job.error_message,
         provider_job_id=job.provider_job_id,
+        performance_metrics={str(key): int(value) for key, value in job.performance_metrics.items()},
+        metrics_recorded_at=job.metrics_recorded_at,
         updated_at=job.updated_at,
     )
 

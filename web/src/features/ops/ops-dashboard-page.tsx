@@ -109,7 +109,7 @@ function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | und
       { label: "Items ingested", value: "--", note: "Waiting for backend metrics" },
       { label: "Approved stories", value: "--", note: "Waiting for backend metrics" },
       { label: "Publish success", value: "--", note: "Waiting for backend metrics" },
-      { label: "Recommendations", value: "--", note: "Waiting for backend metrics" },
+      { label: "Engagement clicks", value: "--", note: "Waiting for backend metrics" },
     ];
   }
 
@@ -130,9 +130,9 @@ function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | und
       note: `${summary.publishJobsPublished} published, ${summary.publishJobsFailed} failed`,
     },
     {
-      label: "Recommendations",
-      value: `${summary.feedbackRecommendations.length}`,
-      note: `${summary.sectionReviewMetrics.length} sections tracked`,
+      label: "Engagement clicks",
+      value: `${summary.engagementClicksTotal}`,
+      note: `${summary.engagementInteractionsTotal} interactions, ${summary.engagementOpensTotal} opens`,
     },
   ];
 }
@@ -161,6 +161,48 @@ function pickSectionMetrics(metrics: SectionReviewMetricRecord[]): SectionReview
   return metrics.slice(0, 6);
 }
 
+function getMomentumPriority(momentumTier: string): number {
+  if (momentumTier === "hot") {
+    return 0;
+  }
+  if (momentumTier === "rising") {
+    return 1;
+  }
+  if (momentumTier === "steady") {
+    return 2;
+  }
+  return 3;
+}
+
+function pickMomentumSections(metrics: SectionReviewMetricRecord[]): SectionReviewMetricRecord[] {
+  return [...metrics]
+    .filter((metric) => metric.engagementImpressions > 0 || metric.totalStories > 0)
+    .sort((left, right) => {
+      const momentumDiff = getMomentumPriority(left.momentumTier) - getMomentumPriority(right.momentumTier);
+      if (momentumDiff !== 0) {
+        return momentumDiff;
+      }
+      if (right.engagementClicks !== left.engagementClicks) {
+        return right.engagementClicks - left.engagementClicks;
+      }
+      return right.totalStories - left.totalStories;
+    })
+    .slice(0, 4);
+}
+
+function formatMomentumTier(momentumTier: string): string {
+  if (momentumTier === "hot") {
+    return "Hot";
+  }
+  if (momentumTier === "rising") {
+    return "Rising";
+  }
+  if (momentumTier === "cooling") {
+    return "Cooling";
+  }
+  return "Steady";
+}
+
 function pickRecommendations(recommendations: FeedbackRecommendationRecord[]): FeedbackRecommendationRecord[] {
   return recommendations.slice(0, 6);
 }
@@ -180,7 +222,7 @@ function getPlatformTone(metric: PublishPlatformMetricRecord): "watch" | "calm" 
 }
 
 function getSectionTone(metric: SectionReviewMetricRecord): "watch" | "calm" {
-  if (metric.flaggedStories > 0 || metric.pendingStories > 0) {
+  if (metric.flaggedStories > 0 || metric.pendingStories > 0 || metric.momentumTier === "cooling") {
     return "watch";
   }
   return "calm";
@@ -264,6 +306,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
   const failureGroups = pickFailureGroups(summary?.recentFailureGroups ?? []);
   const platformMetrics = pickPlatformMetrics(summary?.publishPlatformMetrics ?? []);
   const sectionMetrics = pickSectionMetrics(summary?.sectionReviewMetrics ?? []);
+  const momentumSections = pickMomentumSections(summary?.sectionReviewMetrics ?? []);
   const feedbackRecommendations = pickRecommendations(summary?.feedbackRecommendations ?? []);
   const title = mode === "publishing" ? "Publishing Operations" : "Operations Overview";
   const lead =
@@ -408,6 +451,66 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                         <strong>{metric.totalStories}</strong>
                       </div>
                     </div>
+                    <p className="platform-metric-note">
+                      {metric.engagementImpressions > 0
+                        ? `${formatMomentumTier(metric.momentumTier)} · CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} clicks`
+                        : "No post-publication engagement captured for this section yet."}
+                    </p>
+                    <div className="panel-link-row">
+                      <Link className="detail-link" to={buildDetailPath("section", metric.section)}>
+                        Open section detail
+                      </Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </article>
+
+          <article className="panel ops-momentum-panel">
+            <header className="section-title">
+              <div>
+                <p>Section Momentum</p>
+                <h2>High-performing sections</h2>
+              </div>
+              <span>{momentumSections.length} tracked</span>
+            </header>
+
+            {momentumSections.length === 0 ? (
+              <div className="empty-state">No section engagement signals yet. Record publish feedback to reveal what is actually landing.</div>
+            ) : (
+              <div className="source-governance-grid momentum-section-list">
+                {momentumSections.map((metric) => (
+                  <article
+                    key={`momentum-${metric.section}`}
+                    className="source-governance-card"
+                    data-tone={metric.momentumTier === "cooling" ? "watch" : "calm"}
+                  >
+                    <div className="source-governance-head">
+                      <div>
+                        <p>{metric.section.replace(/_/g, " ")}</p>
+                        <strong>{metric.label}</strong>
+                      </div>
+                      <span className="momentum-chip" data-tier={metric.momentumTier}>{formatMomentumTier(metric.momentumTier)}</span>
+                    </div>
+                    <div className="platform-metric-grid compact-gap">
+                      <div>
+                        <span>Clicks</span>
+                        <strong>{metric.engagementClicks}</strong>
+                      </div>
+                      <div>
+                        <span>CTR</span>
+                        <strong>{Math.round(metric.clickThroughRate * 100)}%</strong>
+                      </div>
+                      <div>
+                        <span>Interactions</span>
+                        <strong>{metric.engagementInteractions}</strong>
+                      </div>
+                      <div>
+                        <span>Impressions</span>
+                        <strong>{metric.engagementImpressions}</strong>
+                      </div>
+                    </div>
                     <div className="panel-link-row">
                       <Link className="detail-link" to={buildDetailPath("section", metric.section)}>
                         Open section detail
@@ -550,7 +653,11 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                     </div>
                   </div>
                   <p className="platform-metric-note">
-                    {metric.lastError ? `Latest error: ${metric.lastError}` : "No recent platform errors."}
+                    {metric.engagementImpressions > 0
+                      ? `CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} clicks · ${metric.engagementInteractions} interactions`
+                      : metric.lastError
+                        ? `Latest error: ${metric.lastError}`
+                        : "No recent platform errors or engagement data yet."}
                   </p>
                   <div className="panel-link-row">
                     <Link className="detail-link" to={buildDetailPath("platform", metric.platform, metric.failedJobs > 0)}>

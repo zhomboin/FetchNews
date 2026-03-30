@@ -80,12 +80,16 @@ def _build_story_candidate(cluster: list[NormalizedItem], section_feedback: dict
     score = _score_story(sorted_items)
     section_adjustment = section_feedback.get(primary_section)
     if section_adjustment is not None:
+        boost = float(getattr(section_adjustment, "score_boost", 0.0))
         penalty = float(getattr(section_adjustment, "score_penalty", 0.0))
-        score = round(max(score - penalty, 0.0), 2)
+        score = round(max(score + boost - penalty, 0.0), 2)
         for flag in getattr(section_adjustment, "risk_flags", []):
             if flag not in risk_flags:
                 risk_flags.append(flag)
-        if penalty > 0:
+        for note in getattr(section_adjustment, "highlights", []):
+            if note not in highlights:
+                highlights.append(str(note))
+        if penalty > 0 and all("penalty" not in highlight.lower() for highlight in highlights):
             highlights.append(f"Section governance penalty: -{penalty:.1f}")
 
     story_key = sha1(f"{representative.normalized_title}|{representative.canonical_url}".encode("utf-8")).hexdigest()[:12]

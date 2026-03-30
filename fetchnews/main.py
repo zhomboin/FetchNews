@@ -28,6 +28,7 @@ from fetchnews.publishing.service import (
     poll_publish_jobs,
     publish_job_to_response,
     retry_publish_job,
+    write_publish_job_feedback,
     write_publish_job_result,
 )
 from fetchnews.schemas import (
@@ -40,6 +41,7 @@ from fetchnews.schemas import (
     PipelineRebuildResponse,
     PostVariantResponse,
     PublishDispatchResponse,
+    PublishJobFeedbackRequest,
     PublishJobResponse,
     PublishJobResultRequest,
     PublishPollResponse,
@@ -269,6 +271,27 @@ def create_app(
             status=payload.status,
             external_id=payload.external_id,
             error_message=payload.error_message,
+        )
+        db.commit()
+        return result
+
+    @app.post("/publish-jobs/{job_id}/feedback", response_model=PublishJobResponse)
+    def write_job_feedback(job_id: int, payload: PublishJobFeedbackRequest, db: Session = Depends(get_db)) -> PublishJobResponse:
+        job = db.get(PublishJob, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Publish job not found")
+        if all(
+            value is None
+            for value in [payload.impressions, payload.opens, payload.clicks, payload.interactions]
+        ):
+            raise HTTPException(status_code=400, detail="At least one performance metric is required")
+        result = write_publish_job_feedback(
+            db,
+            job,
+            impressions=payload.impressions,
+            opens=payload.opens,
+            clicks=payload.clicks,
+            interactions=payload.interactions,
         )
         db.commit()
         return result

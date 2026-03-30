@@ -108,6 +108,8 @@ type ApiPublishJob = {
   external_id: string | null;
   error_message: string | null;
   provider_job_id: string | null;
+  performance_metrics: Record<string, number>;
+  metrics_recorded_at: string | null;
   updated_at: string;
 };
 
@@ -137,6 +139,12 @@ type ApiPublishPlatformMetric = {
   published_jobs: number;
   failed_jobs: number;
   success_rate: number;
+  engagement_impressions: number;
+  engagement_opens: number;
+  engagement_clicks: number;
+  engagement_interactions: number;
+  click_through_rate: number;
+  interaction_rate: number;
   last_error: string | null;
 };
 
@@ -147,6 +155,13 @@ type ApiSectionReviewMetric = {
   approved_stories: number;
   pending_stories: number;
   flagged_stories: number;
+  engagement_impressions: number;
+  engagement_opens: number;
+  engagement_clicks: number;
+  engagement_interactions: number;
+  click_through_rate: number;
+  interaction_rate: number;
+  momentum_tier: string;
 };
 
 type ApiFeedbackRecommendation = {
@@ -175,6 +190,10 @@ type ApiOpsSummary = {
   publish_jobs_failed: number;
   publish_success_rate: number;
   due_publish_jobs: number;
+  engagement_impressions_total: number;
+  engagement_opens_total: number;
+  engagement_clicks_total: number;
+  engagement_interactions_total: number;
   recent_failure_groups: ApiFailureGroup[];
   publish_platform_metrics: ApiPublishPlatformMetric[];
   section_review_metrics: ApiSectionReviewMetric[];
@@ -346,6 +365,8 @@ export type PublishJobRecord = {
   externalId: string | null;
   errorMessage: string | null;
   providerJobId: string | null;
+  performanceMetrics: Record<string, number>;
+  metricsRecordedAt: string | null;
   updatedAt: string;
 };
 
@@ -364,6 +385,16 @@ export type PublishJobResultPayload = {
   status: "published" | "failed";
   externalId?: string;
   errorMessage?: string;
+};
+
+/**
+ * Manual performance feedback payload recorded after a post has been published.
+ */
+export type PublishJobFeedbackPayload = {
+  impressions?: number;
+  opens?: number;
+  clicks?: number;
+  interactions?: number;
 };
 
 /**
@@ -404,6 +435,12 @@ export type PublishPlatformMetricRecord = {
   publishedJobs: number;
   failedJobs: number;
   successRate: number;
+  engagementImpressions: number;
+  engagementOpens: number;
+  engagementClicks: number;
+  engagementInteractions: number;
+  clickThroughRate: number;
+  interactionRate: number;
   lastError: string | null;
 };
 
@@ -417,6 +454,13 @@ export type SectionReviewMetricRecord = {
   approvedStories: number;
   pendingStories: number;
   flaggedStories: number;
+  engagementImpressions: number;
+  engagementOpens: number;
+  engagementClicks: number;
+  engagementInteractions: number;
+  clickThroughRate: number;
+  interactionRate: number;
+  momentumTier: string;
 };
 
 /**
@@ -451,6 +495,10 @@ export type OpsSummaryRecord = {
   publishJobsFailed: number;
   publishSuccessRate: number;
   duePublishJobs: number;
+  engagementImpressionsTotal: number;
+  engagementOpensTotal: number;
+  engagementClicksTotal: number;
+  engagementInteractionsTotal: number;
   recentFailureGroups: FailureGroupRecord[];
   publishPlatformMetrics: PublishPlatformMetricRecord[];
   sectionReviewMetrics: SectionReviewMetricRecord[];
@@ -605,6 +653,8 @@ function mapPublishJob(apiJob: ApiPublishJob): PublishJobRecord {
     externalId: apiJob.external_id,
     errorMessage: apiJob.error_message,
     providerJobId: apiJob.provider_job_id,
+    performanceMetrics: apiJob.performance_metrics,
+    metricsRecordedAt: apiJob.metrics_recorded_at,
     updatedAt: apiJob.updated_at,
   };
 }
@@ -642,6 +692,12 @@ function mapPublishPlatformMetric(apiMetric: ApiPublishPlatformMetric): PublishP
     publishedJobs: apiMetric.published_jobs,
     failedJobs: apiMetric.failed_jobs,
     successRate: apiMetric.success_rate,
+    engagementImpressions: apiMetric.engagement_impressions,
+    engagementOpens: apiMetric.engagement_opens,
+    engagementClicks: apiMetric.engagement_clicks,
+    engagementInteractions: apiMetric.engagement_interactions,
+    clickThroughRate: apiMetric.click_through_rate,
+    interactionRate: apiMetric.interaction_rate,
     lastError: apiMetric.last_error,
   };
 }
@@ -654,6 +710,13 @@ function mapSectionReviewMetric(apiMetric: ApiSectionReviewMetric): SectionRevie
     approvedStories: apiMetric.approved_stories,
     pendingStories: apiMetric.pending_stories,
     flaggedStories: apiMetric.flagged_stories,
+    engagementImpressions: apiMetric.engagement_impressions,
+    engagementOpens: apiMetric.engagement_opens,
+    engagementClicks: apiMetric.engagement_clicks,
+    engagementInteractions: apiMetric.engagement_interactions,
+    clickThroughRate: apiMetric.click_through_rate,
+    interactionRate: apiMetric.interaction_rate,
+    momentumTier: apiMetric.momentum_tier,
   };
 }
 
@@ -686,6 +749,10 @@ function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
     publishJobsFailed: apiSummary.publish_jobs_failed,
     publishSuccessRate: apiSummary.publish_success_rate,
     duePublishJobs: apiSummary.due_publish_jobs,
+    engagementImpressionsTotal: apiSummary.engagement_impressions_total,
+    engagementOpensTotal: apiSummary.engagement_opens_total,
+    engagementClicksTotal: apiSummary.engagement_clicks_total,
+    engagementInteractionsTotal: apiSummary.engagement_interactions_total,
     recentFailureGroups: apiSummary.recent_failure_groups.map(mapFailureGroup),
     publishPlatformMetrics: apiSummary.publish_platform_metrics.map(mapPublishPlatformMetric),
     sectionReviewMetrics: apiSummary.section_review_metrics.map(mapSectionReviewMetric),
@@ -865,6 +932,28 @@ export async function writePublishJobResult(
       status: payload.status,
       external_id: payload.externalId,
       error_message: payload.errorMessage,
+    }),
+  });
+  return mapPublishJob(apiJob);
+}
+
+/**
+ * Records post-publication engagement metrics for a publish job.
+ */
+export async function writePublishJobFeedback(
+  jobId: number,
+  payload: PublishJobFeedbackPayload,
+): Promise<PublishJobRecord> {
+  const apiJob = await requestJson<ApiPublishJob>(`/publish-jobs/${jobId}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      impressions: payload.impressions,
+      opens: payload.opens,
+      clicks: payload.clicks,
+      interactions: payload.interactions,
     }),
   });
   return mapPublishJob(apiJob);

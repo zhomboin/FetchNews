@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
-from fetchnews.pipeline.sections import get_section_label, infer_sections_from_signals
+from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
 from fetchnews.schemas import (
     FailureGroupResponse,
     FeedbackRecommendationResponse,
@@ -21,7 +21,8 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
     stories = session.scalars(select(Story).order_by(Story.score.desc(), Story.last_seen_at.desc(), Story.id.desc())).all()
     recent_failure_groups = _build_failure_groups(session)
     publish_platform_metrics = _build_publish_platform_metrics(session)
-    section_review_metrics = _build_section_review_metrics(stories)
+    section_engagement = build_section_engagement_snapshots(session)
+    section_review_metrics = _build_section_review_metrics(stories, section_engagement)
 
     ingest_runs_total = session.scalar(select(func.count()).select_from(IngestRun)) or 0
     ingest_runs_failed = session.scalar(
@@ -64,6 +65,11 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         .where(PublishJob.scheduled_for <= current_time)
     ) or 0
 
+    engagement_impressions_total = sum(metric.engagement_impressions for metric in publish_platform_metrics)
+    engagement_opens_total = sum(metric.engagement_opens for metric in publish_platform_metrics)
+    engagement_clicks_total = sum(metric.engagement_clicks for metric in publish_platform_metrics)
+    engagement_interactions_total = sum(metric.engagement_interactions for metric in publish_platform_metrics)
+
     return OpsSummaryResponse(
         ingest_runs_total=ingest_runs_total,
         ingest_runs_failed=ingest_runs_failed,
@@ -81,6 +87,10 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         publish_jobs_failed=publish_jobs_failed,
         publish_success_rate=publish_success_rate,
         due_publish_jobs=due_publish_jobs,
+        engagement_impressions_total=engagement_impressions_total,
+        engagement_opens_total=engagement_opens_total,
+        engagement_clicks_total=engagement_clicks_total,
+        engagement_interactions_total=engagement_interactions_total,
         recent_failure_groups=recent_failure_groups,
         publish_platform_metrics=publish_platform_metrics,
         section_review_metrics=section_review_metrics,
@@ -173,6 +183,10 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
                 "scheduled_jobs": 0,
                 "published_jobs": 0,
                 "failed_jobs": 0,
+                "engagement_impressions": 0,
+                "engagement_opens": 0,
+                "engagement_clicks": 0,
+                "engagement_interactions": 0,
                 "last_error": None,
             },
         )
@@ -186,11 +200,20 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
             if entry["last_error"] is None and job.error_message:
                 entry["last_error"] = job.error_message
 
+        metrics = job.performance_metrics or {}
+        entry["engagement_impressions"] = int(entry["engagement_impressions"]) + _read_metric(metrics, "impressions")
+        entry["engagement_opens"] = int(entry["engagement_opens"]) + _read_metric(metrics, "opens")
+        entry["engagement_clicks"] = int(entry["engagement_clicks"]) + _read_metric(metrics, "clicks")
+        entry["engagement_interactions"] = int(entry["engagement_interactions"]) + _read_metric(metrics, "interactions")
+
     ordered_entries = sorted(grouped.values(), key=lambda entry: (-int(entry["total_jobs"]), str(entry["platform"])))
     metrics: list[PublishPlatformMetricResponse] = []
     for entry in ordered_entries:
         terminal_jobs = int(entry["published_jobs"]) + int(entry["failed_jobs"])
         success_rate = int(entry["published_jobs"]) / terminal_jobs if terminal_jobs else 0.0
+        impressions = int(entry["engagement_impressions"])
+        clicks = int(entry["engagement_clicks"])
+        interactions = int(entry["engagement_interactions"])
         metrics.append(
             PublishPlatformMetricResponse(
                 platform=str(entry["platform"]),
@@ -199,22 +222,26 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
                 published_jobs=int(entry["published_jobs"]),
                 failed_jobs=int(entry["failed_jobs"]),
                 success_rate=success_rate,
+                engagement_impressions=impressions,
+                engagement_opens=int(entry["engagement_opens"]),
+                engagement_clicks=clicks,
+                engagement_interactions=interactions,
+                click_through_rate=(clicks / impressions) if impressions else 0.0,
+                interaction_rate=(interactions / impressions) if impressions else 0.0,
                 last_error=str(entry["last_error"]) if entry["last_error"] is not None else None,
             )
         )
     return metrics
 
 
-def _build_section_review_metrics(stories: list[Story]) -> list[SectionReviewMetricResponse]:
+def _build_section_review_metrics(
+    stories: list[Story],
+    section_engagement: dict[str, object],
+) -> list[SectionReviewMetricResponse]:
     grouped: dict[str, dict[str, int]] = {}
 
     for story in stories:
-        primary_section, _ = infer_sections_from_signals(
-            title=story.cluster_title,
-            summary=story.summary,
-            tags=story.tags,
-            source_hints=story.source_links,
-        )
+        primary_section = resolve_story_primary_section(story)
         entry = grouped.setdefault(
             primary_section,
             {
@@ -232,20 +259,45 @@ def _build_section_review_metrics(stories: list[Story]) -> list[SectionReviewMet
         if story.risk_flags:
             entry["flagged_stories"] += 1
 
-    metrics = [
-        SectionReviewMetricResponse(
-            section=section,
-            label=get_section_label(section),
-            total_stories=counts["total_stories"],
-            approved_stories=counts["approved_stories"],
-            pending_stories=counts["pending_stories"],
-            flagged_stories=counts["flagged_stories"],
+    metrics: list[SectionReviewMetricResponse] = []
+    for section in sorted(set(grouped) | set(section_engagement)):
+        counts = grouped.get(
+            section,
+            {
+                "total_stories": 0,
+                "approved_stories": 0,
+                "pending_stories": 0,
+                "flagged_stories": 0,
+            },
         )
-        for section, counts in grouped.items()
-    ]
+        engagement_snapshot = section_engagement.get(section)
+        metrics.append(
+            SectionReviewMetricResponse(
+                section=section,
+                label=getattr(engagement_snapshot, "label", section.replace("_", " ")),
+                total_stories=counts["total_stories"],
+                approved_stories=counts["approved_stories"],
+                pending_stories=counts["pending_stories"],
+                flagged_stories=counts["flagged_stories"],
+                engagement_impressions=int(getattr(engagement_snapshot, "engagement_impressions", 0)),
+                engagement_opens=int(getattr(engagement_snapshot, "engagement_opens", 0)),
+                engagement_clicks=int(getattr(engagement_snapshot, "engagement_clicks", 0)),
+                engagement_interactions=int(getattr(engagement_snapshot, "engagement_interactions", 0)),
+                click_through_rate=float(getattr(engagement_snapshot, "click_through_rate", 0.0)),
+                interaction_rate=float(getattr(engagement_snapshot, "interaction_rate", 0.0)),
+                momentum_tier=str(getattr(engagement_snapshot, "momentum_tier", "steady")),
+            )
+        )
     return sorted(
         metrics,
-        key=lambda metric: (-metric.flagged_stories, -metric.pending_stories, -metric.total_stories, metric.section),
+        key=lambda metric: (
+            _section_momentum_rank(metric.momentum_tier),
+            -metric.flagged_stories,
+            -metric.pending_stories,
+            -metric.engagement_clicks,
+            -metric.total_stories,
+            metric.section,
+        ),
     )
 
 
@@ -259,43 +311,77 @@ def _build_feedback_recommendations(
 
     for metric in section_review_metrics:
         signal_count = metric.flagged_stories * 2 + metric.pending_stories
-        if signal_count == 0:
-            continue
-        recommendations.append(
-            FeedbackRecommendationResponse(
-                category="section",
-                target=metric.section,
-                title=f"Review backlog in {metric.label}",
-                summary=(
-                    f"{metric.label} has {metric.pending_stories} pending stories and "
-                    f"{metric.flagged_stories} flagged stories awaiting manual confirmation."
-                ),
-                suggestion=(
-                    "Tighten source confirmation for this section, review risk flags first, and only promote "
-                    "stories with strong primary-source coverage into digest generation."
-                ),
-                signal_count=signal_count,
+        if signal_count > 0:
+            recommendations.append(
+                FeedbackRecommendationResponse(
+                    category="section",
+                    target=metric.section,
+                    title=f"Review backlog in {metric.label}",
+                    summary=(
+                        f"{metric.label} has {metric.pending_stories} pending stories and "
+                        f"{metric.flagged_stories} flagged stories awaiting manual confirmation."
+                    ),
+                    suggestion=(
+                        "Tighten source confirmation for this section, review risk flags first, and only promote "
+                        "stories with strong primary-source coverage into digest generation."
+                    ),
+                    signal_count=signal_count,
+                )
             )
-        )
+            continue
+
+        if metric.momentum_tier == "cooling":
+            recommendations.append(
+                FeedbackRecommendationResponse(
+                    category="section",
+                    target=metric.section,
+                    title=f"Engagement cooled in {metric.label}",
+                    summary=(
+                        f"{metric.label} is still getting distribution, but only {metric.engagement_clicks} clicks "
+                        f"from {metric.engagement_impressions} impressions."
+                    ),
+                    suggestion=(
+                        "Review headline framing and the story mix in this section before giving it more digest "
+                        "surface area. Prioritize stronger primary-source angles or fresher developments."
+                    ),
+                    signal_count=max(metric.engagement_impressions // 100, 1),
+                )
+            )
 
     for metric in publish_platform_metrics:
-        if metric.failed_jobs == 0:
-            continue
-        recommendations.append(
-            FeedbackRecommendationResponse(
-                category="platform",
-                target=metric.platform,
-                title=f"Publishing quality needs attention on {metric.platform}",
-                summary=(
-                    f"{metric.platform} recorded {metric.failed_jobs} failed jobs out of {metric.total_jobs} recent jobs."
-                ),
-                suggestion=(
-                    f"Investigate the latest platform error ({metric.last_error or 'unknown error'}), retry only the "
-                    "affected jobs, and reduce scheduling density if failures cluster in a short window."
-                ),
-                signal_count=metric.failed_jobs,
+        if metric.failed_jobs > 0:
+            recommendations.append(
+                FeedbackRecommendationResponse(
+                    category="platform",
+                    target=metric.platform,
+                    title=f"Publishing quality needs attention on {metric.platform}",
+                    summary=(
+                        f"{metric.platform} recorded {metric.failed_jobs} failed jobs out of {metric.total_jobs} recent jobs."
+                    ),
+                    suggestion=(
+                        f"Investigate the latest platform error ({metric.last_error or 'unknown error'}), retry only the "
+                        "affected jobs, and reduce scheduling density if failures cluster in a short window."
+                    ),
+                    signal_count=metric.failed_jobs,
+                )
             )
-        )
+        elif metric.engagement_impressions >= 200 and metric.click_through_rate < 0.03:
+            recommendations.append(
+                FeedbackRecommendationResponse(
+                    category="platform",
+                    target=metric.platform,
+                    title=f"Engagement is weak on {metric.platform}",
+                    summary=(
+                        f"{metric.platform} is delivering impressions but only {metric.engagement_clicks} clicks from "
+                        f"{metric.engagement_impressions} impressions."
+                    ),
+                    suggestion=(
+                        "Review headline framing, posting cadence, and platform-specific copy. Keep the source mix stable, "
+                        "but test stronger hooks before expanding distribution volume."
+                    ),
+                    signal_count=max(metric.engagement_clicks, 1),
+                )
+            )
 
     for group in failure_groups:
         if group.category != "ingest" or not group.targets:
@@ -316,6 +402,32 @@ def _build_feedback_recommendations(
         recommendations,
         key=lambda recommendation: (-recommendation.signal_count, recommendation.category, recommendation.target),
     )[:8]
+
+
+def _section_momentum_rank(momentum_tier: str) -> int:
+    if momentum_tier == "hot":
+        return 0
+    if momentum_tier == "rising":
+        return 1
+    if momentum_tier == "steady":
+        return 2
+    return 3
+
+
+def _read_metric(metrics: dict[str, object], key: str) -> int:
+    value = metrics.get(key)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
 
 
 def _suggest_publish_retry(reason: str) -> str:

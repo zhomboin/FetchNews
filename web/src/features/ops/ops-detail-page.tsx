@@ -10,6 +10,7 @@ import {
   StoryRecord,
   fetchArticleDrafts,
   fetchIngestRuns,
+  fetchOpsSummary,
   fetchPublishJobs,
   fetchSourceSpecs,
   fetchStories,
@@ -17,6 +18,7 @@ import {
 } from "../../lib/api";
 
 const REFRESH_INTERVAL_MS = 30_000;
+const OPS_SUMMARY_QUERY_KEY = ["opsSummary", "detail"] as const;
 const STORIES_QUERY_KEY = ["stories", "detail"] as const;
 const PUBLISH_JOBS_QUERY_KEY = ["publishJobs", "detail"] as const;
 const ARTICLES_QUERY_KEY = ["articles", "detail"] as const;
@@ -87,6 +89,19 @@ function formatPlatform(platform: string): string {
     return "Telegram";
   }
   return platform.toUpperCase();
+}
+
+function formatMomentumTier(momentumTier: string): string {
+  if (momentumTier === "hot") {
+    return "Hot";
+  }
+  if (momentumTier === "rising") {
+    return "Rising";
+  }
+  if (momentumTier === "cooling") {
+    return "Cooling";
+  }
+  return "Steady";
 }
 
 function formatPeriodType(periodType: ArticleDraftRecord["periodType"]): string {
@@ -168,6 +183,12 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
   const target = pickTarget(searchParams, detailKind);
   const failedOnly = searchParams.get("failedOnly") === "1";
 
+  const opsSummaryQuery = useQuery({
+    queryKey: OPS_SUMMARY_QUERY_KEY,
+    queryFn: fetchOpsSummary,
+    enabled: detailKind === "section" && target !== null,
+    refetchInterval: REFRESH_INTERVAL_MS,
+  });
   const storiesQuery = useQuery({
     queryKey: STORIES_QUERY_KEY,
     queryFn: fetchStories,
@@ -199,12 +220,17 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
     refetchInterval: REFRESH_INTERVAL_MS,
   });
 
+  const opsSummary = opsSummaryQuery.data;
   const stories = storiesQuery.data ?? [];
   const publishJobs = publishJobsQuery.data ?? [];
   const articles = articlesQuery.data ?? [];
   const sourceSpecs = sourceSpecsQuery.data ?? [];
   const ingestRuns = ingestRunsQuery.data ?? [];
 
+  const sectionMetric =
+    detailKind === "section" && target !== null
+      ? opsSummary?.sectionReviewMetrics.find((metric) => metric.section === target) ?? null
+      : null;
   const sectionStories =
     detailKind === "section" && target !== null
       ? stories
@@ -218,6 +244,15 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
           .filter((job) => (failedOnly ? job.status === "failed" : true))
           .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
       : [];
+  const platformEngagement = platformJobs.reduce(
+    (totals, job) => ({
+      impressions: totals.impressions + (job.performanceMetrics.impressions ?? 0),
+      opens: totals.opens + (job.performanceMetrics.opens ?? 0),
+      clicks: totals.clicks + (job.performanceMetrics.clicks ?? 0),
+      interactions: totals.interactions + (job.performanceMetrics.interactions ?? 0),
+    }),
+    { impressions: 0, opens: 0, clicks: 0, interactions: 0 },
+  );
   const relatedArticleIds = new Set(platformJobs.map((job) => job.articleId));
   const platformArticles =
     detailKind === "platform" && target !== null
@@ -244,12 +279,14 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
       : [];
 
   const isLoading =
+    opsSummaryQuery.isLoading ||
     storiesQuery.isLoading ||
     publishJobsQuery.isLoading ||
     articlesQuery.isLoading ||
     sourceSpecsQuery.isLoading ||
     ingestRunsQuery.isLoading;
   const isError =
+    opsSummaryQuery.isError ||
     storiesQuery.isError ||
     publishJobsQuery.isError ||
     articlesQuery.isError ||
@@ -340,6 +377,24 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
               <p>Flagged</p>
               <strong>{sectionStories.filter((story) => story.riskFlags.length > 0).length}</strong>
               <span>Stories carrying at least one risk flag.</span>
+            </article>
+            <article className="metric-cell">
+              <p>Momentum</p>
+              <strong>{formatMomentumTier(sectionMetric?.momentumTier ?? "steady")}</strong>
+              <span>
+                {sectionMetric
+                  ? `${sectionMetric.engagementClicks} clicks from ${sectionMetric.engagementImpressions} impressions.`
+                  : "No post-publication engagement captured for this section yet."}
+              </span>
+            </article>
+            <article className="metric-cell">
+              <p>CTR</p>
+              <strong>{sectionMetric ? `${Math.round(sectionMetric.clickThroughRate * 100)}%` : "--"}</strong>
+              <span>
+                {sectionMetric
+                  ? `${sectionMetric.engagementInteractions} interactions and ${sectionMetric.engagementOpens} opens.`
+                  : "Awaiting publish feedback to compute section conversion."}
+              </span>
             </article>
           </section>
 
@@ -439,14 +494,14 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
               <span>Jobs that reached a terminal published state.</span>
             </article>
             <article className="metric-cell">
-              <p>Failed</p>
-              <strong>{platformJobs.filter((job) => job.status === "failed").length}</strong>
-              <span>Jobs that need retry or editorial follow-up.</span>
+              <p>Clicks</p>
+              <strong>{platformEngagement.clicks}</strong>
+              <span>{platformEngagement.interactions} interactions from visible jobs.</span>
             </article>
             <article className="metric-cell">
               <p>Drafts</p>
               <strong>{platformArticles.length}</strong>
-              <span>Digests currently associated with this platform.</span>
+              <span>{platformEngagement.impressions} impressions recorded for this platform.</span>
             </article>
           </section>
 
@@ -484,6 +539,11 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                         <span className="publish-job-note">Updated {formatDateTime(job.updatedAt)}</span>
                         {job.providerJobId ? <span className="publish-job-note">Provider job: {job.providerJobId}</span> : null}
                         {job.externalId ? <span className="publish-job-note">External id: {job.externalId}</span> : null}
+                        {job.metricsRecordedAt ? (
+                          <span className="publish-job-note">
+                            Metrics: {job.performanceMetrics.impressions ?? 0} impressions · {job.performanceMetrics.clicks ?? 0} clicks · {job.performanceMetrics.interactions ?? 0} interactions
+                          </span>
+                        ) : null}
                         {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                       </div>
                     </article>

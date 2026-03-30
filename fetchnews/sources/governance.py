@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import IngestRun, IngestRunStatus, Story, StoryStatus
+from fetchnews.pipeline.engagement import build_section_engagement_snapshots
 from fetchnews.pipeline.sections import infer_sections_from_signals
 from fetchnews.schemas import SourceSpec
 
@@ -31,8 +32,11 @@ class SourceGovernanceFeedback:
 
 @dataclass(slots=True)
 class SectionGovernanceFeedback:
-    score_penalty: float
+    score_penalty: float = 0.0
+    score_boost: float = 0.0
     risk_flags: list[str] = field(default_factory=list)
+    highlights: list[str] = field(default_factory=list)
+    momentum_tier: str = "steady"
 
 
 DEFAULT_TRUST_SCORE = 1.5
@@ -106,7 +110,10 @@ def build_source_governance_feedback(
             governance_flags.append("flagged_stories")
 
         ranking_penalty = failed_count * 1.4 + pending_count * 0.7 + flagged_count * 1.1
-        effective_score_multiplier = max(base_score_multiplier - (failed_count * 0.08) - (pending_count * 0.05) - (flagged_count * 0.08), 0.55)
+        effective_score_multiplier = max(
+            base_score_multiplier - (failed_count * 0.08) - (pending_count * 0.05) - (flagged_count * 0.08),
+            0.55,
+        )
         effective_trust_score = max(base_trust_score - (failed_count * 0.6) - (pending_count * 0.25) - (flagged_count * 0.35), 0.0)
 
         feedback_by_slug[spec.slug] = SourceGovernanceFeedback(
@@ -139,14 +146,40 @@ def build_section_governance_feedback(session: Session) -> dict[str, SectionGove
         if story.risk_flags:
             entry["flagged"] += 1
 
+    engagement_snapshots = build_section_engagement_snapshots(session)
     feedback: dict[str, SectionGovernanceFeedback] = {}
-    for section, counts in section_counts.items():
-        score_penalty = counts["pending"] * 1.1 + counts["flagged"] * 1.6
-        if score_penalty <= 0:
+    for section in sorted(set(section_counts) | set(engagement_snapshots)):
+        counts = section_counts.get(section, {"pending": 0, "flagged": 0})
+        governance_penalty = counts["pending"] * 1.1 + counts["flagged"] * 1.6
+        engagement_snapshot = engagement_snapshots.get(section)
+        score_boost = engagement_snapshot.score_boost if engagement_snapshot is not None else 0.0
+        score_penalty = governance_penalty + (engagement_snapshot.score_penalty if engagement_snapshot is not None else 0.0)
+
+        risk_flags: list[str] = []
+        if governance_penalty > 0:
+            risk_flags.append("section_feedback_watch")
+        if engagement_snapshot is not None and engagement_snapshot.score_penalty > 0:
+            risk_flags.append("section_engagement_watch")
+
+        highlights: list[str] = []
+        if engagement_snapshot is not None and engagement_snapshot.score_boost > 0:
+            highlights.append(
+                f"Section momentum {engagement_snapshot.momentum_tier}: +{engagement_snapshot.score_boost:.1f}"
+            )
+        if engagement_snapshot is not None and engagement_snapshot.score_penalty > 0:
+            highlights.append(
+                f"Section engagement cooling: -{engagement_snapshot.score_penalty:.1f}"
+            )
+
+        if score_penalty <= 0 and score_boost <= 0 and not risk_flags and not highlights:
             continue
+
         feedback[section] = SectionGovernanceFeedback(
             score_penalty=round(score_penalty, 2),
-            risk_flags=["section_feedback_watch"],
+            score_boost=round(score_boost, 2),
+            risk_flags=risk_flags,
+            highlights=highlights,
+            momentum_tier=engagement_snapshot.momentum_tier if engagement_snapshot is not None else "steady",
         )
 
     return feedback

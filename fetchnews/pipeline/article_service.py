@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, Story, StoryStatus
+from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
 from fetchnews.pipeline.generation import generate_digest, group_stories_by_section, resolve_article_sections
 from fetchnews.schemas import ArticleDraftResponse, PostVariantResponse, StoryCandidate
 
@@ -62,8 +63,12 @@ def generate_and_persist_digest(
     story_ids: list[int] | None = None,
     generation_note: str | None = None,
 ) -> ArticleDraftResponse:
-    approved_stories = _load_approved_stories(session, story_ids)
-    story_candidates = [_story_to_candidate(story) for story in approved_stories]
+    section_engagement = build_section_engagement_snapshots(session)
+    approved_stories = _load_approved_stories(session, story_ids, section_engagement=section_engagement)
+    story_candidates = [
+        _story_to_candidate(story, score_override=_ranking_score_for_story(story, section_engagement))
+        for story in approved_stories
+    ]
     digest = generate_digest(
         target_date=target_date,
         period_type=period_type,
@@ -159,20 +164,27 @@ def variant_to_response(variant: PostVariant) -> PostVariantResponse:
     )
 
 
-def _load_approved_stories(session: Session, story_ids: list[int] | None) -> list[Story]:
+def _load_approved_stories(
+    session: Session,
+    story_ids: list[int] | None,
+    *,
+    section_engagement: dict[str, object] | None = None,
+) -> list[Story]:
     query = select(Story).where(Story.status == StoryStatus.APPROVED)
+    feedback = section_engagement or build_section_engagement_snapshots(session)
     if story_ids:
         requested_story_ids = list(dict.fromkeys(story_ids))
         stories = session.scalars(query.where(Story.id.in_(requested_story_ids))).all()
         loaded_story_ids = {story.id for story in stories}
         if loaded_story_ids != set(requested_story_ids):
             raise ValueError("One or more selected stories are unavailable or not approved")
-        return sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
+        return _sort_stories_for_digest(stories, feedback)
 
-    return session.scalars(query.order_by(Story.score.desc(), Story.last_seen_at.desc())).all()
+    stories = session.scalars(query).all()
+    return _sort_stories_for_digest(stories, feedback)
 
 
-def _story_to_candidate(story: Story) -> StoryCandidate:
+def _story_to_candidate(story: Story, *, score_override: float | None = None) -> StoryCandidate:
     return StoryCandidate(
         story_key=story.story_key,
         cluster_title=story.cluster_title,
@@ -181,7 +193,7 @@ def _story_to_candidate(story: Story) -> StoryCandidate:
         source_links=story.source_links,
         tags=story.tags,
         risk_flags=story.risk_flags,
-        score=story.score,
+        score=score_override if score_override is not None else story.score,
         item_count=story.item_count,
         first_seen_at=story.first_seen_at,
         last_seen_at=story.last_seen_at,
@@ -201,6 +213,25 @@ def _upsert_post_variants(session: Session, article_id: int, posts: dict[str, st
             continue
         existing.content = content
 
+
+
+
+def _sort_stories_for_digest(stories: list[Story], section_engagement: dict[str, object]) -> list[Story]:
+    return sorted(
+        stories,
+        key=lambda story: (_ranking_score_for_story(story, section_engagement), story.last_seen_at, story.id),
+        reverse=True,
+    )
+
+
+def _ranking_score_for_story(story: Story, section_engagement: dict[str, object]) -> float:
+    primary_section = resolve_story_primary_section(story)
+    feedback = section_engagement.get(primary_section)
+    if feedback is None:
+        return story.score
+    score_boost = float(getattr(feedback, "score_boost", 0.0))
+    score_penalty = float(getattr(feedback, "score_penalty", 0.0))
+    return round(max(story.score + score_boost - score_penalty, 0.0), 2)
 
 def _variant_count_by_article(session: Session) -> dict[int, int]:
     variants = session.scalars(select(PostVariant)).all()
