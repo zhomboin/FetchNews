@@ -246,6 +246,24 @@ class PublishPlatformMetricResponse(BaseModel):
     last_error: str | None = None
 
 
+class SectionReviewMetricResponse(BaseModel):
+    section: str
+    label: str
+    total_stories: int
+    approved_stories: int
+    pending_stories: int
+    flagged_stories: int
+
+
+class FeedbackRecommendationResponse(BaseModel):
+    category: str
+    target: str
+    title: str
+    summary: str
+    suggestion: str
+    signal_count: int = 0
+
+
 class OpsSummaryResponse(BaseModel):
     ingest_runs_total: int
     ingest_runs_failed: int
@@ -265,3 +283,5 @@ class OpsSummaryResponse(BaseModel):
     due_publish_jobs: int
     recent_failure_groups: list[FailureGroupResponse] = Field(default_factory=list)
     publish_platform_metrics: list[PublishPlatformMetricResponse] = Field(default_factory=list)
+    section_review_metrics: list[SectionReviewMetricResponse] = Field(default_factory=list)
+    feedback_recommendations: list[FeedbackRecommendationResponse] = Field(default_factory=list)

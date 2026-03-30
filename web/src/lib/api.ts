@@ -126,6 +126,24 @@ type ApiPublishPlatformMetric = {
   last_error: string | null;
 };
 
+type ApiSectionReviewMetric = {
+  section: string;
+  label: string;
+  total_stories: number;
+  approved_stories: number;
+  pending_stories: number;
+  flagged_stories: number;
+};
+
+type ApiFeedbackRecommendation = {
+  category: string;
+  target: string;
+  title: string;
+  summary: string;
+  suggestion: string;
+  signal_count: number;
+};
+
 type ApiOpsSummary = {
   ingest_runs_total: number;
   ingest_runs_failed: number;
@@ -145,6 +163,8 @@ type ApiOpsSummary = {
   due_publish_jobs: number;
   recent_failure_groups: ApiFailureGroup[];
   publish_platform_metrics: ApiPublishPlatformMetric[];
+  section_review_metrics: ApiSectionReviewMetric[];
+  feedback_recommendations: ApiFeedbackRecommendation[];
 };
 
 /**
@@ -370,6 +390,30 @@ export type PublishPlatformMetricRecord = {
 };
 
 /**
+ * Review load aggregated by inferred editorial section.
+ */
+export type SectionReviewMetricRecord = {
+  section: string;
+  label: string;
+  totalStories: number;
+  approvedStories: number;
+  pendingStories: number;
+  flaggedStories: number;
+};
+
+/**
+ * Actionable recommendation derived from review and publishing signals.
+ */
+export type FeedbackRecommendationRecord = {
+  category: string;
+  target: string;
+  title: string;
+  summary: string;
+  suggestion: string;
+  signalCount: number;
+};
+
+/**
  * Aggregated operations metrics used by the real dashboard.
  */
 export type OpsSummaryRecord = {
@@ -391,6 +435,8 @@ export type OpsSummaryRecord = {
   duePublishJobs: number;
   recentFailureGroups: FailureGroupRecord[];
   publishPlatformMetrics: PublishPlatformMetricRecord[];
+  sectionReviewMetrics: SectionReviewMetricRecord[];
+  feedbackRecommendations: FeedbackRecommendationRecord[];
 };
 
 /**
@@ -566,6 +612,28 @@ function mapPublishPlatformMetric(apiMetric: ApiPublishPlatformMetric): PublishP
   };
 }
 
+function mapSectionReviewMetric(apiMetric: ApiSectionReviewMetric): SectionReviewMetricRecord {
+  return {
+    section: apiMetric.section,
+    label: apiMetric.label,
+    totalStories: apiMetric.total_stories,
+    approvedStories: apiMetric.approved_stories,
+    pendingStories: apiMetric.pending_stories,
+    flaggedStories: apiMetric.flagged_stories,
+  };
+}
+
+function mapFeedbackRecommendation(apiRecommendation: ApiFeedbackRecommendation): FeedbackRecommendationRecord {
+  return {
+    category: apiRecommendation.category,
+    target: apiRecommendation.target,
+    title: apiRecommendation.title,
+    summary: apiRecommendation.summary,
+    suggestion: apiRecommendation.suggestion,
+    signalCount: apiRecommendation.signal_count,
+  };
+}
+
 function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
   return {
     ingestRunsTotal: apiSummary.ingest_runs_total,
@@ -586,6 +654,8 @@ function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
     duePublishJobs: apiSummary.due_publish_jobs,
     recentFailureGroups: apiSummary.recent_failure_groups.map(mapFailureGroup),
     publishPlatformMetrics: apiSummary.publish_platform_metrics.map(mapPublishPlatformMetric),
+    sectionReviewMetrics: apiSummary.section_review_metrics.map(mapSectionReviewMetric),
+    feedbackRecommendations: apiSummary.feedback_recommendations.map(mapFeedbackRecommendation),
   };
 }
 

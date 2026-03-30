@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArticleDraftRecord,
   FailureGroupRecord,
+  FeedbackRecommendationRecord,
   PublishJobRecord,
   PublishPlatformMetricRecord,
+  SectionReviewMetricRecord,
   fetchArticleDrafts,
   fetchOpsSummary,
   fetchPublishJobs,
@@ -48,39 +50,52 @@ function formatPlatform(platform: string): string {
 
 function formatPublishStatus(status: string): string {
   if (status === "scheduled") {
-    return "待回写";
+    return "Scheduled";
   }
   if (status === "published") {
-    return "已发布";
+    return "Published";
   }
   if (status === "failed") {
-    return "失败";
+    return "Failed";
   }
   return status;
 }
 
 function formatArticleStatus(status: string): string {
   if (status === "ready") {
-    return "待发布";
+    return "Ready";
   }
   if (status === "scheduled") {
-    return "已排期";
+    return "Scheduled";
   }
   if (status === "published") {
-    return "已发布";
+    return "Published";
   }
   if (status === "failed") {
-    return "发布失败";
+    return "Failed";
   }
-  return "草稿";
+  return "Draft";
 }
 
 function formatFailureCategory(category: string): string {
   if (category === "ingest") {
-    return "采集";
+    return "Ingest";
   }
   if (category === "publish") {
-    return "发布";
+    return "Publish";
+  }
+  return category;
+}
+
+function formatRecommendationCategory(category: string): string {
+  if (category === "section") {
+    return "Section";
+  }
+  if (category === "platform") {
+    return "Platform";
+  }
+  if (category === "source") {
+    return "Source";
   }
   return category;
 }
@@ -88,33 +103,33 @@ function formatFailureCategory(category: string): string {
 function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | undefined): OpsMetric[] {
   if (summary === undefined) {
     return [
-      { label: "累计入库", value: "--", note: "等待后端指标" },
-      { label: "已审核 Stories", value: "--", note: "等待后端指标" },
-      { label: "发布成功率", value: "--", note: "等待后端指标" },
-      { label: "平台覆盖", value: "--", note: "等待后端指标" },
+      { label: "Items ingested", value: "--", note: "Waiting for backend metrics" },
+      { label: "Approved stories", value: "--", note: "Waiting for backend metrics" },
+      { label: "Publish success", value: "--", note: "Waiting for backend metrics" },
+      { label: "Recommendations", value: "--", note: "Waiting for backend metrics" },
     ];
   }
 
   return [
     {
-      label: "累计入库",
+      label: "Items ingested",
       value: `${summary.itemsIngestedTotal}`,
-      note: `${summary.ingestRunsTotal} 次采集，异常 ${summary.ingestRunsFailed} 次`,
+      note: `${summary.ingestRunsTotal} runs, ${summary.ingestRunsFailed} failed`,
     },
     {
-      label: "已审核 Stories",
+      label: "Approved stories",
       value: `${summary.storiesApproved}`,
-      note: `总量 ${summary.storiesTotal}，待审核 ${summary.storiesPending}`,
+      note: `${summary.storiesPending} pending review`,
     },
     {
-      label: "发布成功率",
+      label: "Publish success",
       value: `${Math.round(summary.publishSuccessRate * 100)}%`,
-      note: `成功 ${summary.publishJobsPublished}，失败 ${summary.publishJobsFailed}`,
+      note: `${summary.publishJobsPublished} published, ${summary.publishJobsFailed} failed`,
     },
     {
-      label: "平台覆盖",
-      value: `${summary.publishPlatformMetrics.length}`,
-      note: `最近失败归因 ${summary.recentFailureGroups.length} 组`,
+      label: "Recommendations",
+      value: `${summary.feedbackRecommendations.length}`,
+      note: `${summary.sectionReviewMetrics.length} sections tracked`,
     },
   ];
 }
@@ -139,6 +154,14 @@ function pickPlatformMetrics(metrics: PublishPlatformMetricRecord[]): PublishPla
   return metrics.slice(0, 6);
 }
 
+function pickSectionMetrics(metrics: SectionReviewMetricRecord[]): SectionReviewMetricRecord[] {
+  return metrics.slice(0, 6);
+}
+
+function pickRecommendations(recommendations: FeedbackRecommendationRecord[]): FeedbackRecommendationRecord[] {
+  return recommendations.slice(0, 6);
+}
+
 function getFailureTone(group: FailureGroupRecord): "watch" | "calm" {
   if (group.category === "publish") {
     return "watch";
@@ -148,6 +171,20 @@ function getFailureTone(group: FailureGroupRecord): "watch" | "calm" {
 
 function getPlatformTone(metric: PublishPlatformMetricRecord): "watch" | "calm" {
   if (metric.failedJobs > 0 && metric.successRate < 0.5) {
+    return "watch";
+  }
+  return "calm";
+}
+
+function getSectionTone(metric: SectionReviewMetricRecord): "watch" | "calm" {
+  if (metric.flaggedStories > 0 || metric.pendingStories > 0) {
+    return "watch";
+  }
+  return "calm";
+}
+
+function getRecommendationTone(recommendation: FeedbackRecommendationRecord): "watch" | "calm" {
+  if (recommendation.category === "platform" || recommendation.category === "section") {
     return "watch";
   }
   return "calm";
@@ -179,11 +216,13 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
   const recentArticles = pickRecentArticles(articlesQuery.data ?? []);
   const failureGroups = pickFailureGroups(summary?.recentFailureGroups ?? []);
   const platformMetrics = pickPlatformMetrics(summary?.publishPlatformMetrics ?? []);
-  const title = mode === "publishing" ? "发布运维面板" : "运营总览面板";
+  const sectionMetrics = pickSectionMetrics(summary?.sectionReviewMetrics ?? []);
+  const feedbackRecommendations = pickRecommendations(summary?.feedbackRecommendations ?? []);
+  const title = mode === "publishing" ? "Publishing Operations" : "Operations Overview";
   const lead =
     mode === "publishing"
-      ? "集中查看发布成功率、平台表现、失败归因和重试建议，确认多平台分发链路是否稳定。"
-      : "将采集、审核、草稿、发布和失败诊断汇总到同一控制台，快速判断当日 AI 资讯流水线是否健康。";
+      ? "Track delivery quality, platform health, review backlog, and the next actions the team should take before retrying distribution."
+      : "Watch ingestion, editorial review, draft generation, and multi-platform delivery from one warm-metal control room.";
 
   return (
     <div className="preview-page ops-dashboard-page">
@@ -200,13 +239,13 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
             <strong>{health}</strong>
           </div>
           <div className="meta-chip">
-            <span>刷新频率</span>
-            <strong>30 秒</strong>
+            <span>Refresh interval</span>
+            <strong>30s</strong>
           </div>
         </div>
       </section>
 
-      <section className="metric-strip" aria-label="运维指标概览">
+      <section className="metric-strip" aria-label="Operations snapshot">
         {metrics.map((metric) => (
           <article key={metric.label} className="metric-cell">
             <p>{metric.label}</p>
@@ -221,9 +260,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           <header className="section-title">
             <div>
               <p>Pipeline Health</p>
-              <h2>主链路健康度</h2>
+              <h2>Core workflow health</h2>
             </div>
-            <span>{summaryQuery.isFetching ? "正在刷新" : "稳定读取中"}</span>
+            <span>{summaryQuery.isFetching ? "Refreshing" : "Live snapshot"}</span>
           </header>
 
           <div className="runway ops-runway">
@@ -232,9 +271,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>1</span>
               </div>
               <div className="runway-copy">
-                <strong>采集</strong>
+                <strong>Ingest</strong>
                 <p>{summary?.ingestRunsTotal ?? 0}</p>
-                <span>累计运行，异常 {summary?.ingestRunsFailed ?? 0}</span>
+                <span>{summary?.ingestRunsFailed ?? 0} runs with errors</span>
               </div>
             </div>
             <div className="runway-step">
@@ -242,9 +281,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>2</span>
               </div>
               <div className="runway-copy">
-                <strong>审核</strong>
+                <strong>Review</strong>
                 <p>{summary?.storiesApproved ?? 0}</p>
-                <span>待审核 {summary?.storiesPending ?? 0}</span>
+                <span>{summary?.storiesPending ?? 0} waiting for review</span>
               </div>
             </div>
             <div className="runway-step">
@@ -252,185 +291,263 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>3</span>
               </div>
               <div className="runway-copy">
-                <strong>发布</strong>
+                <strong>Publish</strong>
                 <p>{summary?.publishJobsPublished ?? 0}</p>
-                <span>排队 {summary?.publishJobsScheduled ?? 0}</span>
+                <span>{summary?.publishJobsScheduled ?? 0} still scheduled</span>
               </div>
             </div>
           </div>
 
           <div className="risk-overview-grid ops-risk-grid">
             <div className="risk-stat" data-tone={(summary?.articlesFailed ?? 0) > 0 ? "watch" : "calm"}>
-              <p>草稿失败</p>
+              <p>Failed drafts</p>
               <strong>{summary?.articlesFailed ?? 0}</strong>
-              <span>如果这里持续增长，优先检查发布任务失败原因。</span>
+              <span>Drafts that failed after publish writeback and need operator attention.</span>
             </div>
             <div className="risk-stat" data-tone={(summary?.duePublishJobs ?? 0) > 0 ? "watch" : "calm"}>
-              <p>到期未完成</p>
+              <p>Due but not completed</p>
               <strong>{summary?.duePublishJobs ?? 0}</strong>
-              <span>到期任务积压通常说明 dispatch 或 poll 链路需要关注。</span>
+              <span>Jobs already due but still waiting for dispatch or poll completion.</span>
             </div>
-            <div className="risk-stat" data-tone={(summary?.recentFailureGroups.length ?? 0) > 0 ? "watch" : "default"}>
-              <p>失败归因</p>
-              <strong>{summary?.recentFailureGroups.length ?? 0}</strong>
-              <span>按近因聚合失败原因，便于判断是否值得集中重试。</span>
+            <div
+              className="risk-stat"
+              data-tone={(summary?.feedbackRecommendations.length ?? 0) > 0 ? "watch" : "calm"}
+            >
+              <p>Action queue</p>
+              <strong>{summary?.feedbackRecommendations.length ?? 0}</strong>
+              <span>Recommendations generated from review backlog, failures, and platform signals.</span>
             </div>
           </div>
         </article>
 
         <div className="ops-side-stack">
-          <article className="panel ops-diagnostics-panel">
+          <article className="panel ops-section-panel">
             <header className="section-title">
               <div>
-                <p>Failure Diagnostics</p>
-                <h2>最近失败原因</h2>
+                <p>Section Review</p>
+                <h2>Editorial load by section</h2>
               </div>
-              <span>{failureGroups.length} 组</span>
+              <span>{sectionMetrics.length} sections</span>
             </header>
 
-            {failureGroups.length === 0 ? (
-              <div className="empty-state">最近没有失败分组，当前运维面板没有需要人工跟进的异常。</div>
+            {sectionMetrics.length === 0 ? (
+              <div className="empty-state">No reviewed or pending stories yet. Run ingestion and approve a few stories first.</div>
             ) : (
-              <div className="failure-group-list">
-                {failureGroups.map((group) => (
-                  <article key={`${group.category}-${group.reason}`} className="failure-group-card" data-tone={getFailureTone(group)}>
+              <div className="source-governance-grid section-metric-list">
+                {sectionMetrics.map((metric) => (
+                  <article key={metric.section} className="source-governance-card" data-tone={getSectionTone(metric)}>
+                    <div className="source-governance-head">
+                      <div>
+                        <p>{metric.section.replace(/_/g, " ")}</p>
+                        <strong>{metric.label}</strong>
+                      </div>
+                      <span className="status-pill status-pending">{metric.totalStories}</span>
+                    </div>
+                    <div className="platform-metric-grid compact-gap">
+                      <div>
+                        <span>Approved</span>
+                        <strong>{metric.approvedStories}</strong>
+                      </div>
+                      <div>
+                        <span>Pending</span>
+                        <strong>{metric.pendingStories}</strong>
+                      </div>
+                      <div>
+                        <span>Flagged</span>
+                        <strong>{metric.flaggedStories}</strong>
+                      </div>
+                      <div>
+                        <span>Total</span>
+                        <strong>{metric.totalStories}</strong>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </article>
+
+          <article className="panel ops-recommendation-panel">
+            <header className="section-title">
+              <div>
+                <p>Feedback Loop</p>
+                <h2>Recommended next actions</h2>
+              </div>
+              <span>{feedbackRecommendations.length} suggestions</span>
+            </header>
+
+            {feedbackRecommendations.length === 0 ? (
+              <div className="empty-state">No actions recommended right now. Current review and publish signals look stable.</div>
+            ) : (
+              <div className="failure-group-list recommendation-list">
+                {feedbackRecommendations.map((recommendation) => (
+                  <article
+                    key={`${recommendation.category}-${recommendation.target}`}
+                    className="failure-group-card recommendation-card"
+                    data-tone={getRecommendationTone(recommendation)}
+                  >
                     <div className="failure-group-head">
                       <div>
-                        <p>{formatFailureCategory(group.category)}</p>
-                        <strong>{group.reason}</strong>
+                        <p>{formatRecommendationCategory(recommendation.category)}</p>
+                        <strong>{recommendation.title}</strong>
                       </div>
-                      <span className="status-pill status-failed">{group.count} 次</span>
+                      <span className="status-pill status-pending">{recommendation.signalCount}</span>
                     </div>
-                    <div className="failure-chip-list">
-                      {group.targets.map((target) => (
-                        <span key={`${group.reason}-${target}`} className="failure-target-chip">
-                          {target}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="failure-suggestion">{group.suggestion}</p>
+                    <p className="source-governance-note">{recommendation.summary}</p>
+                    <p className="failure-suggestion">{recommendation.suggestion}</p>
                   </article>
                 ))}
               </div>
             )}
           </article>
+        </div>
+      </section>
 
-          <article className="panel ops-platform-panel">
-            <header className="section-title">
-              <div>
-                <p>Platform Performance</p>
-                <h2>平台发布表现</h2>
-              </div>
-              <span>{platformMetrics.length} 个平台</span>
-            </header>
+      <section className="ops-grid">
+        <article className="panel ops-diagnostics-panel">
+          <header className="section-title">
+            <div>
+              <p>Failure Diagnostics</p>
+              <h2>Recent grouped failures</h2>
+            </div>
+            <span>{failureGroups.length} groups</span>
+          </header>
 
-            {platformMetrics.length === 0 ? (
-              <div className="empty-state">当前还没有平台级发布数据，先创建并执行发布任务。</div>
-            ) : (
-              <div className="platform-metric-list">
-                {platformMetrics.map((metric) => (
-                  <article key={metric.platform} className="platform-metric-card" data-tone={getPlatformTone(metric)}>
-                    <div className="platform-metric-head">
-                      <strong>{formatPlatform(metric.platform)}</strong>
-                      <span>{Math.round(metric.successRate * 100)}%</span>
-                    </div>
-                    <div className="platform-metric-grid">
-                      <div>
-                        <span>总任务</span>
-                        <strong>{metric.totalJobs}</strong>
-                      </div>
-                      <div>
-                        <span>成功</span>
-                        <strong>{metric.publishedJobs}</strong>
-                      </div>
-                      <div>
-                        <span>失败</span>
-                        <strong>{metric.failedJobs}</strong>
-                      </div>
-                      <div>
-                        <span>排队</span>
-                        <strong>{metric.scheduledJobs}</strong>
-                      </div>
-                    </div>
-                    <p className="platform-metric-note">
-                      {metric.lastError ? `最近错误：${metric.lastError}` : "最近没有失败记录。"}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </article>
-
-          <article className="panel ops-jobs-panel">
-            <header className="section-title">
-              <div>
-                <p>Recent Publish Jobs</p>
-                <h2>最近发布任务</h2>
-              </div>
-              <span>{recentJobs.length} 条</span>
-            </header>
-
-            <div className="publish-job-list">
-              {publishJobsQuery.isLoading ? <div className="empty-state">正在加载发布任务...</div> : null}
-              {publishJobsQuery.isError ? <div className="empty-state">发布任务加载失败，请确认 /publish-jobs 接口可用。</div> : null}
-              {!publishJobsQuery.isLoading && !publishJobsQuery.isError && recentJobs.length === 0 ? (
-                <div className="empty-state">当前还没有发布任务。</div>
-              ) : null}
-              {recentJobs.map((job) => (
-                <article key={job.id} className="publish-job-row">
-                  <div className="publish-job-copy">
+          {failureGroups.length === 0 ? (
+            <div className="empty-state">No recent grouped failures. The current pipeline snapshot looks clean.</div>
+          ) : (
+            <div className="failure-group-list">
+              {failureGroups.map((group) => (
+                <article key={`${group.category}-${group.reason}`} className="failure-group-card" data-tone={getFailureTone(group)}>
+                  <div className="failure-group-head">
                     <div>
-                      <strong>{formatPlatform(job.platform)}</strong>
-                      <p>{formatDateTime(job.scheduledFor)}</p>
+                      <p>{formatFailureCategory(group.category)}</p>
+                      <strong>{group.reason}</strong>
                     </div>
-                    <div className="publish-job-meta">
-                      <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
-                      <span>重试 {job.retries}</span>
+                    <span className="status-pill status-failed">{group.count}</span>
+                  </div>
+                  <div className="failure-chip-list">
+                    {group.targets.map((target) => (
+                      <span key={`${group.reason}-${target}`} className="failure-target-chip">
+                        {target}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="failure-suggestion">{group.suggestion}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </article>
+
+        <article className="panel ops-platform-panel">
+          <header className="section-title">
+            <div>
+              <p>Platform Performance</p>
+              <h2>Publishing by channel</h2>
+            </div>
+            <span>{platformMetrics.length} platforms</span>
+          </header>
+
+          {platformMetrics.length === 0 ? (
+            <div className="empty-state">No platform metrics yet. Create and execute a few publish jobs first.</div>
+          ) : (
+            <div className="platform-metric-list">
+              {platformMetrics.map((metric) => (
+                <article key={metric.platform} className="platform-metric-card" data-tone={getPlatformTone(metric)}>
+                  <div className="platform-metric-head">
+                    <strong>{formatPlatform(metric.platform)}</strong>
+                    <span>{Math.round(metric.successRate * 100)}%</span>
+                  </div>
+                  <div className="platform-metric-grid">
+                    <div>
+                      <span>Total jobs</span>
+                      <strong>{metric.totalJobs}</strong>
+                    </div>
+                    <div>
+                      <span>Published</span>
+                      <strong>{metric.publishedJobs}</strong>
+                    </div>
+                    <div>
+                      <span>Failed</span>
+                      <strong>{metric.failedJobs}</strong>
+                    </div>
+                    <div>
+                      <span>Scheduled</span>
+                      <strong>{metric.scheduledJobs}</strong>
                     </div>
                   </div>
-                  <div className="publish-job-note-stack">
-                    <span className="publish-job-note">最近更新：{formatDateTime(job.updatedAt)}</span>
-                    {job.providerJobId ? <span className="publish-job-note">Provider Job：{job.providerJobId}</span> : null}
-                    {job.externalId ? <span className="publish-job-note">外部 ID：{job.externalId}</span> : null}
-                    {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
+                  <p className="platform-metric-note">
+                    {metric.lastError ? `Latest error: ${metric.lastError}` : "No recent platform errors."}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section className="ops-grid">
+        <article className="panel ops-jobs-panel">
+          <header className="section-title">
+            <div>
+              <p>Recent Jobs</p>
+              <h2>Latest publish activity</h2>
+            </div>
+            <span>{recentJobs.length} jobs</span>
+          </header>
+
+          {recentJobs.length === 0 ? (
+            <div className="empty-state">No publish jobs yet. Create a draft and schedule distribution to populate this feed.</div>
+          ) : (
+            <div className="ops-article-list">
+              {recentJobs.map((job) => (
+                <article key={job.id} className="ops-article-row">
+                  <div>
+                    <strong>{formatPlatform(job.platform)}</strong>
+                    <p>
+                      Article #{job.articleId} · {formatDateTime(job.updatedAt)}
+                    </p>
+                  </div>
+                  <div className="ops-article-meta">
+                    <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
+                    <span>{job.errorMessage ?? `Retries: ${job.retries}`}</span>
                   </div>
                 </article>
               ))}
             </div>
-          </article>
-        </div>
+          )}
+        </article>
 
         <article className="panel ops-articles-panel">
           <header className="section-title">
             <div>
               <p>Recent Drafts</p>
-              <h2>最新草稿状态</h2>
+              <h2>Latest digest updates</h2>
             </div>
-            <span>{recentArticles.length} 条</span>
+            <span>{recentArticles.length} drafts</span>
           </header>
 
-          <div className="ops-article-list">
-            {articlesQuery.isLoading ? <div className="empty-state">正在加载草稿...</div> : null}
-            {articlesQuery.isError ? <div className="empty-state">草稿加载失败，请确认 /articles 接口可用。</div> : null}
-            {!articlesQuery.isLoading && !articlesQuery.isError && recentArticles.length === 0 ? (
-              <div className="empty-state">当前还没有已生成的日报、周报或月报草稿。</div>
-            ) : null}
-            {recentArticles.map((article) => (
-              <article key={article.id} className="ops-article-row">
-                <div>
-                  <strong>{article.title}</strong>
-                  <p>{article.summary}</p>
-                </div>
-                <div className="ops-article-meta">
-                  <span className="period-pill" data-period={article.periodType}>
-                    {article.periodType}
-                  </span>
-                  <span className={`status-pill status-${article.status}`}>{formatArticleStatus(article.status)}</span>
-                  <span>{formatDateTime(article.updatedAt)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+          {recentArticles.length === 0 ? (
+            <div className="empty-state">No article drafts yet. Generate a digest to start tracking draft health here.</div>
+          ) : (
+            <div className="ops-article-list">
+              {recentArticles.map((article) => (
+                <article key={article.id} className="ops-article-row">
+                  <div>
+                    <strong>{article.title}</strong>
+                    <p>
+                      {article.periodType.toUpperCase()} · {article.storyCount} stories · updated {formatDateTime(article.updatedAt)}
+                    </p>
+                  </div>
+                  <div className="ops-article-meta">
+                    <span className={`status-pill status-${article.status}`}>{formatArticleStatus(article.status)}</span>
+                    <span>{article.variantCount} variants</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </article>
       </section>
     </div>

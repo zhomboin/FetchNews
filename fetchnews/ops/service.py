@@ -6,11 +6,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
-from fetchnews.schemas import FailureGroupResponse, OpsSummaryResponse, PublishPlatformMetricResponse
+from fetchnews.pipeline.sections import get_section_label, infer_sections_from_signals
+from fetchnews.schemas import (
+    FailureGroupResponse,
+    FeedbackRecommendationResponse,
+    OpsSummaryResponse,
+    PublishPlatformMetricResponse,
+    SectionReviewMetricResponse,
+)
 
 
 def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSummaryResponse:
     current_time = now or datetime.now(UTC)
+    stories = session.scalars(select(Story).order_by(Story.score.desc(), Story.last_seen_at.desc(), Story.id.desc())).all()
+    recent_failure_groups = _build_failure_groups(session)
+    publish_platform_metrics = _build_publish_platform_metrics(session)
+    section_review_metrics = _build_section_review_metrics(stories)
+
     ingest_runs_total = session.scalar(select(func.count()).select_from(IngestRun)) or 0
     ingest_runs_failed = session.scalar(
         select(func.count())
@@ -18,13 +30,9 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         .where(IngestRun.status.in_([IngestRunStatus.FAILED, IngestRunStatus.COMPLETED_WITH_ERRORS]))
     ) or 0
     items_ingested_total = session.scalar(select(func.coalesce(func.sum(IngestRun.items_ingested), 0))) or 0
-    stories_total = session.scalar(select(func.count()).select_from(Story)) or 0
-    stories_approved = session.scalar(
-        select(func.count()).select_from(Story).where(Story.status == StoryStatus.APPROVED)
-    ) or 0
-    stories_pending = session.scalar(
-        select(func.count()).select_from(Story).where(Story.status == StoryStatus.PENDING)
-    ) or 0
+    stories_total = len(stories)
+    stories_approved = sum(1 for story in stories if story.status == StoryStatus.APPROVED)
+    stories_pending = sum(1 for story in stories if story.status == StoryStatus.PENDING)
     articles_total = session.scalar(select(func.count()).select_from(ArticleDraft)) or 0
     articles_ready = session.scalar(
         select(func.count())
@@ -73,8 +81,14 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         publish_jobs_failed=publish_jobs_failed,
         publish_success_rate=publish_success_rate,
         due_publish_jobs=due_publish_jobs,
-        recent_failure_groups=_build_failure_groups(session),
-        publish_platform_metrics=_build_publish_platform_metrics(session),
+        recent_failure_groups=recent_failure_groups,
+        publish_platform_metrics=publish_platform_metrics,
+        section_review_metrics=section_review_metrics,
+        feedback_recommendations=_build_feedback_recommendations(
+            section_review_metrics=section_review_metrics,
+            publish_platform_metrics=publish_platform_metrics,
+            failure_groups=recent_failure_groups,
+        ),
     )
 
 
@@ -191,23 +205,136 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
     return metrics
 
 
+def _build_section_review_metrics(stories: list[Story]) -> list[SectionReviewMetricResponse]:
+    grouped: dict[str, dict[str, int]] = {}
+
+    for story in stories:
+        primary_section, _ = infer_sections_from_signals(
+            title=story.cluster_title,
+            summary=story.summary,
+            tags=story.tags,
+            source_hints=story.source_links,
+        )
+        entry = grouped.setdefault(
+            primary_section,
+            {
+                "total_stories": 0,
+                "approved_stories": 0,
+                "pending_stories": 0,
+                "flagged_stories": 0,
+            },
+        )
+        entry["total_stories"] += 1
+        if story.status == StoryStatus.APPROVED:
+            entry["approved_stories"] += 1
+        elif story.status == StoryStatus.PENDING:
+            entry["pending_stories"] += 1
+        if story.risk_flags:
+            entry["flagged_stories"] += 1
+
+    metrics = [
+        SectionReviewMetricResponse(
+            section=section,
+            label=get_section_label(section),
+            total_stories=counts["total_stories"],
+            approved_stories=counts["approved_stories"],
+            pending_stories=counts["pending_stories"],
+            flagged_stories=counts["flagged_stories"],
+        )
+        for section, counts in grouped.items()
+    ]
+    return sorted(
+        metrics,
+        key=lambda metric: (-metric.flagged_stories, -metric.pending_stories, -metric.total_stories, metric.section),
+    )
+
+
+def _build_feedback_recommendations(
+    *,
+    section_review_metrics: list[SectionReviewMetricResponse],
+    publish_platform_metrics: list[PublishPlatformMetricResponse],
+    failure_groups: list[FailureGroupResponse],
+) -> list[FeedbackRecommendationResponse]:
+    recommendations: list[FeedbackRecommendationResponse] = []
+
+    for metric in section_review_metrics:
+        signal_count = metric.flagged_stories * 2 + metric.pending_stories
+        if signal_count == 0:
+            continue
+        recommendations.append(
+            FeedbackRecommendationResponse(
+                category="section",
+                target=metric.section,
+                title=f"Review backlog in {metric.label}",
+                summary=(
+                    f"{metric.label} has {metric.pending_stories} pending stories and "
+                    f"{metric.flagged_stories} flagged stories awaiting manual confirmation."
+                ),
+                suggestion=(
+                    "Tighten source confirmation for this section, review risk flags first, and only promote "
+                    "stories with strong primary-source coverage into digest generation."
+                ),
+                signal_count=signal_count,
+            )
+        )
+
+    for metric in publish_platform_metrics:
+        if metric.failed_jobs == 0:
+            continue
+        recommendations.append(
+            FeedbackRecommendationResponse(
+                category="platform",
+                target=metric.platform,
+                title=f"Publishing quality needs attention on {metric.platform}",
+                summary=(
+                    f"{metric.platform} recorded {metric.failed_jobs} failed jobs out of {metric.total_jobs} recent jobs."
+                ),
+                suggestion=(
+                    f"Investigate the latest platform error ({metric.last_error or 'unknown error'}), retry only the "
+                    "affected jobs, and reduce scheduling density if failures cluster in a short window."
+                ),
+                signal_count=metric.failed_jobs,
+            )
+        )
+
+    for group in failure_groups:
+        if group.category != "ingest" or not group.targets:
+            continue
+        target = group.targets[0]
+        recommendations.append(
+            FeedbackRecommendationResponse(
+                category="source",
+                target=target,
+                title=f"Source connector instability: {target}",
+                summary=f"Recent ingest failures were grouped under '{group.reason}'.",
+                suggestion=group.suggestion,
+                signal_count=group.count,
+            )
+        )
+
+    return sorted(
+        recommendations,
+        key=lambda recommendation: (-recommendation.signal_count, recommendation.category, recommendation.target),
+    )[:8]
+
+
 def _suggest_publish_retry(reason: str) -> str:
     lowered = reason.lower()
     if "rate limit" in lowered or "limit" in lowered:
-        return "等待平台限流窗口恢复后再重试，并降低单批发布密度。"
+        return "Wait for the platform rate-limit window to recover, then retry the failed jobs in smaller batches."
     if "rejected" in lowered or "moderation" in lowered:
-        return "检查平台内容策略、账号状态或文案后，再执行重试。"
+        return "Review moderation policy, account health, and post copy before re-queuing the job."
     if "credential" in lowered or "auth" in lowered or "token" in lowered:
-        return "先修复平台凭证或授权状态，再重新入队失败任务。"
-    return "检查发布日志后执行单任务重试，必要时重新生成对应平台文案。"
+        return "Repair platform credentials or authorization first, then retry the affected jobs."
+    return "Inspect the publish logs, verify connector health, and retry only after the root cause is clear."
 
 
 def _suggest_ingest_retry(reason: str) -> str:
     lowered = reason.lower()
     if "rate limit" in lowered or "limit" in lowered:
-        return "降低采集频率并等待来源限流恢复，再重新触发采集。"
+        return "Reduce ingest frequency, wait for source rate limits to clear, then rerun the source."
     if "timeout" in lowered or "timed out" in lowered:
-        return "检查来源可达性和网络波动，确认恢复后再重试。"
+        return "Check source availability and network stability, then rerun the connector after recovery."
     if "parse" in lowered or "schema" in lowered:
-        return "检查解析规则或字段映射，修正后重新抓取该来源。"
-    return "检查来源配置和连接器日志，确认原因后再执行重试。"
+        return "Inspect connector parsing rules and field mappings before retrying the source."
+    return "Inspect source configuration and connector logs, then retry after confirming the failure cause."
