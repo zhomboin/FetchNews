@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import date
 
+from fetchnews.pipeline.platform_copy import PlatformCopyProfile
 from fetchnews.pipeline.sections import get_section_label
 from fetchnews.schemas import ArticleDraftPayload, DailyDigest, StoryCandidate
 
@@ -19,8 +20,9 @@ def generate_digest(
     stories: list[StoryCandidate],
     period_type: str = "daily",
     generation_note: str | None = None,
+    platform_profiles: dict[str, PlatformCopyProfile] | None = None,
 ) -> DailyDigest:
-    ordered = sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
+    ordered = _order_stories_for_period(stories, period_type)
     section_groups = group_stories_by_section(ordered)
     article_sections = resolve_article_sections(ordered, section_groups)
 
@@ -37,15 +39,7 @@ def generate_digest(
         sections=article_sections,
     )
 
-    top_story = ordered[0] if ordered else None
-    top_label = top_story.cluster_title if top_story else "本期暂无通过审核内容"
-    top_sections = " / ".join(get_section_label(section) for section in article_sections[:2])
-    top_tags = " #" + " #".join(top_story.tags[:2]) if top_story and top_story.tags else ""
-    posts = {
-        "wechat": f"{article.title}\n\n{article.summary}\n\n{article.body}",
-        "x": f"{article.title}｜{top_sections or '综合观察'}：{top_label}{top_tags}"[:280],
-        "telegram": f"{article.title}\n\n{article.summary}\n\n{article.body}",
-    }
+    posts = _build_platform_posts(article, ordered, article_sections, platform_profiles or {})
     return DailyDigest(article=article, posts=posts)
 
 
@@ -60,6 +54,12 @@ def generate_daily_digest(
         period_type="daily",
         generation_note=generation_note,
     )
+
+
+def _order_stories_for_period(stories: list[StoryCandidate], period_type: str) -> list[StoryCandidate]:
+    if period_type in {"weekly", "monthly"}:
+        return list(stories)
+    return sorted(stories, key=lambda story: (story.score, story.last_seen_at), reverse=True)
 
 
 def group_stories_by_section(stories: list[StoryCandidate]) -> OrderedDict[str, list[StoryCandidate]]:
@@ -118,6 +118,113 @@ def _build_body(
         body_blocks.append("\n\n".join(section_lines))
 
     return "\n\n".join(body_blocks)
+
+
+def _build_platform_posts(
+    article: ArticleDraftPayload,
+    stories: list[StoryCandidate],
+    article_sections: list[str],
+    platform_profiles: dict[str, PlatformCopyProfile],
+) -> dict[str, str]:
+    section_summary = " / ".join(get_section_label(section) for section in article_sections[:2]) or "综合观察"
+    top_story = stories[0] if stories else None
+    top_label = top_story.cluster_title if top_story else "本期暂无通过审核内容"
+    top_tags = " #" + " #".join(top_story.tags[:2]) if top_story and top_story.tags else ""
+
+    return {
+        "wechat": _build_wechat_post(article, stories, section_summary, platform_profiles.get("wechat")),
+        "x": _build_x_post(article, top_label, section_summary, top_story, top_tags, platform_profiles.get("x")),
+        "telegram": _build_telegram_post(article, stories, platform_profiles.get("telegram")),
+    }
+
+
+def _build_wechat_post(
+    article: ArticleDraftPayload,
+    stories: list[StoryCandidate],
+    section_summary: str,
+    profile: PlatformCopyProfile | None,
+) -> str:
+    strategy = profile.strategy if profile is not None else "balanced"
+    if strategy == "editorial":
+        return "\n\n".join([
+            article.title,
+            f"编辑摘要：{article.summary}",
+            f"本期栏目：{section_summary}",
+            article.body,
+        ])
+    if strategy == "actionable":
+        return "\n\n".join([
+            article.title,
+            "先看这 3 条：",
+            _build_story_bullet_list(stories),
+            article.body,
+        ])
+    return f"{article.title}\n\n{article.summary}\n\n{article.body}"
+
+
+def _build_x_post(
+    article: ArticleDraftPayload,
+    top_label: str,
+    section_summary: str,
+    top_story: StoryCandidate | None,
+    top_tags: str,
+    profile: PlatformCopyProfile | None,
+) -> str:
+    strategy = profile.strategy if profile is not None else "headline"
+    if strategy == "conversational":
+        focus_line = _build_focus_line(top_story)
+        return f"{article.title}｜{section_summary}：{top_label}。{focus_line}。你最想继续跟进哪条？{top_tags}"[:280]
+    if strategy == "link_out":
+        return f"{article.title}｜{section_summary}：{top_label}。今天更偏工具与来源速览。{top_tags}"[:280]
+    return f"{article.title}｜{section_summary}：{top_label}{top_tags}"[:280]
+
+
+def _build_telegram_post(
+    article: ArticleDraftPayload,
+    stories: list[StoryCandidate],
+    profile: PlatformCopyProfile | None,
+) -> str:
+    strategy = profile.strategy if profile is not None else "digest"
+    if strategy == "bulletin":
+        return "\n\n".join([
+            article.title,
+            "速览清单",
+            _build_story_bullet_list(stories),
+            article.summary,
+        ])
+    if strategy == "discussion":
+        return "\n\n".join([
+            article.title,
+            "讨论焦点",
+            _build_discussion_prompts(stories),
+            article.summary,
+        ])
+    return f"{article.title}\n\n{article.summary}\n\n{article.body}"
+
+
+def _build_story_bullet_list(stories: list[StoryCandidate], limit: int = 3) -> str:
+    if not stories:
+        return "- 暂无可分发内容"
+    lines = [f"- {story.cluster_title}" for story in stories[:limit]]
+    return "\n".join(lines)
+
+
+def _build_discussion_prompts(stories: list[StoryCandidate], limit: int = 2) -> str:
+    if not stories:
+        return "- 暂无可讨论内容"
+    prompts: list[str] = []
+    for story in stories[:limit]:
+        highlight = story.highlights[0] if story.highlights else story.summary
+        prompts.append(f"- {story.cluster_title}：{highlight}")
+    return "\n".join(prompts)
+
+
+def _build_focus_line(top_story: StoryCandidate | None) -> str:
+    if top_story is None:
+        return "继续观察今日动态"
+    if top_story.highlights:
+        return top_story.highlights[0]
+    return top_story.summary
 
 
 def _format_period_marker(target_date: date, period_type: str) -> str:

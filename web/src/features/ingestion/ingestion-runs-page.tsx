@@ -56,13 +56,19 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+const POSITIVE_GOVERNANCE_FLAGS = new Set(["high_engagement", "steady_engagement"]);
+
 function readSignal(source: SourceSpec, key: string): number {
   const value = source.feedbackSignals[key];
   return typeof value === "number" ? value : 0;
 }
 
+function isPositiveGovernanceFlag(flag: string): boolean {
+  return POSITIVE_GOVERNANCE_FLAGS.has(flag);
+}
+
 function getGovernanceTone(source: SourceSpec): "watch" | "calm" {
-  if (source.governanceFlags.length > 0) {
+  if (source.governanceFlags.some((flag) => !isPositiveGovernanceFlag(flag))) {
     return "watch";
   }
   if ((source.effectiveScoreMultiplier ?? 1) < 0.9) {
@@ -88,6 +94,13 @@ function formatGovernanceSummary(source: SourceSpec): string {
   const flaggedStories = readSignal(source, "flagged_stories");
   if (failedRuns > 0 || pendingStories > 0 || flaggedStories > 0) {
     parts.push(`Failures ${failedRuns} / Pending ${pendingStories} / Flagged ${flaggedStories}`);
+  }
+
+  const engagementImpressions = readSignal(source, "engagement_impressions");
+  const engagementClicks = readSignal(source, "engagement_clicks");
+  const clickThroughRate = readSignal(source, "click_through_rate");
+  if (engagementImpressions > 0) {
+    parts.push(`Engagement ${engagementClicks}/${engagementImpressions} clicks (${Math.round(clickThroughRate * 100)}% CTR)`);
   }
 
   return parts.join(" · ");
@@ -271,7 +284,10 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                 {source.governanceFlags.length > 0 ? (
                   <div className="failure-chip-list">
                     {source.governanceFlags.map((flag) => (
-                      <span key={`${source.slug}-${flag}`} className="failure-target-chip">
+                      <span
+                        key={`${source.slug}-${flag}`}
+                        className={isPositiveGovernanceFlag(flag) ? "source-chip source-chip-soft" : "failure-target-chip"}
+                      >
                         {flag}
                       </span>
                     ))}

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
 from fetchnews.pipeline.generation import generate_digest, group_stories_by_section, resolve_article_sections
+from fetchnews.pipeline.platform_copy import build_platform_copy_profiles
 from fetchnews.schemas import ArticleDraftResponse, PostVariantResponse, StoryCandidate
 
 
@@ -64,16 +65,23 @@ def generate_and_persist_digest(
     generation_note: str | None = None,
 ) -> ArticleDraftResponse:
     section_engagement = build_section_engagement_snapshots(session)
-    approved_stories = _load_approved_stories(session, story_ids, section_engagement=section_engagement)
+    approved_stories = _load_approved_stories(
+        session,
+        story_ids,
+        period_type=period_type,
+        section_engagement=section_engagement,
+    )
     story_candidates = [
         _story_to_candidate(story, score_override=_ranking_score_for_story(story, section_engagement))
         for story in approved_stories
     ]
+    platform_profiles = build_platform_copy_profiles(session)
     digest = generate_digest(
         target_date=target_date,
         period_type=period_type,
         stories=story_candidates,
         generation_note=generation_note,
+        platform_profiles=platform_profiles,
     )
 
     normalized_note = generation_note.strip() if generation_note and generation_note.strip() else None
@@ -168,6 +176,7 @@ def _load_approved_stories(
     session: Session,
     story_ids: list[int] | None,
     *,
+    period_type: str = "daily",
     section_engagement: dict[str, object] | None = None,
 ) -> list[Story]:
     query = select(Story).where(Story.status == StoryStatus.APPROVED)
@@ -178,10 +187,57 @@ def _load_approved_stories(
         loaded_story_ids = {story.id for story in stories}
         if loaded_story_ids != set(requested_story_ids):
             raise ValueError("One or more selected stories are unavailable or not approved")
-        return _sort_stories_for_digest(stories, feedback)
+        return _compose_digest_story_mix(stories, period_type, feedback)
 
     stories = session.scalars(query).all()
-    return _sort_stories_for_digest(stories, feedback)
+    return _compose_digest_story_mix(stories, period_type, feedback)
+
+
+
+
+def _compose_digest_story_mix(
+    stories: list[Story],
+    period_type: str,
+    section_engagement: dict[str, object],
+) -> list[Story]:
+    ranked_stories = _sort_stories_for_digest(stories, section_engagement)
+    if period_type == "daily" or len(ranked_stories) <= 1:
+        return ranked_stories
+
+    section_groups: dict[str, list[Story]] = {}
+    for story in ranked_stories:
+        section_groups.setdefault(resolve_story_primary_section(story), []).append(story)
+    if len(section_groups) <= 1:
+        return ranked_stories
+
+    section_cycle = _build_section_cycle(list(section_groups.keys()), period_type, section_engagement)
+    mixed_stories: list[Story] = []
+    while any(section_groups.values()):
+        progressed = False
+        for section in section_cycle:
+            bucket = section_groups.get(section)
+            if bucket:
+                mixed_stories.append(bucket.pop(0))
+                progressed = True
+        if not progressed:
+            break
+    return mixed_stories
+
+
+def _build_section_cycle(
+    ordered_sections: list[str],
+    period_type: str,
+    section_engagement: dict[str, object],
+) -> list[str]:
+    bonus_sections: list[str] = []
+    for section in ordered_sections:
+        feedback = section_engagement.get(section)
+        momentum_tier = str(getattr(feedback, "momentum_tier", "steady")) if feedback is not None else "steady"
+        if momentum_tier in {"hot", "rising"}:
+            bonus_sections.append(section)
+        if period_type == "monthly" and momentum_tier == "hot":
+            bonus_sections.append(section)
+    return [*ordered_sections, *bonus_sections]
 
 
 def _story_to_candidate(story: Story, *, score_override: float | None = None) -> StoryCandidate:

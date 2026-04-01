@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fetchnews.models import IngestRun, IngestRunStatus, Story, StoryStatus
+from fetchnews.models import ArticleDraft, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots
 from fetchnews.pipeline.sections import infer_sections_from_signals
 from fetchnews.schemas import SourceSpec
@@ -16,16 +16,27 @@ class SourceGovernanceFeedback:
     failed_ingest_runs: int = 0
     pending_stories: int = 0
     flagged_stories: int = 0
+    engagement_impressions: int = 0
+    engagement_clicks: int = 0
+    engagement_interactions: int = 0
     effective_trust_score: float | None = None
     effective_score_multiplier: float = 1.0
     governance_flags: list[str] = field(default_factory=list)
     ranking_penalty: float = 0.0
 
     def feedback_signals(self) -> dict[str, int | float]:
+        impressions = max(self.engagement_impressions, 0)
+        click_through_rate = self.engagement_clicks / impressions if impressions else 0.0
+        interaction_rate = self.engagement_interactions / impressions if impressions else 0.0
         return {
             "failed_ingest_runs": self.failed_ingest_runs,
             "pending_stories": self.pending_stories,
             "flagged_stories": self.flagged_stories,
+            "engagement_impressions": self.engagement_impressions,
+            "engagement_clicks": self.engagement_clicks,
+            "engagement_interactions": self.engagement_interactions,
+            "click_through_rate": round(click_through_rate, 4),
+            "interaction_rate": round(interaction_rate, 4),
             "ranking_penalty": round(self.ranking_penalty, 2),
         }
 
@@ -71,6 +82,9 @@ def build_source_governance_feedback(
     failed_ingest_runs = {slug: 0 for slug in source_slugs}
     pending_stories = {slug: 0 for slug in source_slugs}
     flagged_stories = {slug: 0 for slug in source_slugs}
+    engagement_impressions = {slug: 0.0 for slug in source_slugs}
+    engagement_clicks = {slug: 0.0 for slug in source_slugs}
+    engagement_interactions = {slug: 0.0 for slug in source_slugs}
 
     failed_runs = session.scalars(
         select(IngestRun).where(IngestRun.status.in_([IngestRunStatus.FAILED, IngestRunStatus.COMPLETED_WITH_ERRORS]))
@@ -85,6 +99,7 @@ def build_source_governance_feedback(
             seen_in_run.add(slug)
 
     stories = session.scalars(select(Story)).all()
+    stories_by_id = {story.id: story for story in stories}
     for story in stories:
         related_source_slugs = {tag for tag in story.tags if tag in source_slug_set}
         for slug in related_source_slugs:
@@ -93,6 +108,25 @@ def build_source_governance_feedback(
             if story.risk_flags:
                 flagged_stories[slug] += 1
 
+    article_sources = _build_article_source_lookup(session, source_slug_set, stories_by_id)
+    published_jobs = session.scalars(select(PublishJob).where(PublishJob.status == PublishJobStatus.PUBLISHED)).all()
+    for job in published_jobs:
+        related_source_slugs = article_sources.get(job.article_id, set())
+        if not related_source_slugs:
+            continue
+        share_count = len(related_source_slugs)
+        if share_count <= 0:
+            continue
+
+        metrics = job.performance_metrics or {}
+        impressions_share = _read_metric(metrics, "impressions") / share_count
+        clicks_share = _read_metric(metrics, "clicks") / share_count
+        interactions_share = _read_metric(metrics, "interactions") / share_count
+        for slug in related_source_slugs:
+            engagement_impressions[slug] += impressions_share
+            engagement_clicks[slug] += clicks_share
+            engagement_interactions[slug] += interactions_share
+
     feedback_by_slug: dict[str, SourceGovernanceFeedback] = {}
     for spec in source_specs:
         base_trust_score = _coerce_float(spec.config.get("trust_score"), DEFAULT_TRUST_SCORE)
@@ -100,6 +134,9 @@ def build_source_governance_feedback(
         failed_count = failed_ingest_runs[spec.slug]
         pending_count = pending_stories[spec.slug]
         flagged_count = flagged_stories[spec.slug]
+        impressions = int(round(engagement_impressions[spec.slug]))
+        clicks = int(round(engagement_clicks[spec.slug]))
+        interactions = int(round(engagement_interactions[spec.slug]))
 
         governance_flags: list[str] = []
         if failed_count > 0:
@@ -116,10 +153,24 @@ def build_source_governance_feedback(
         )
         effective_trust_score = max(base_trust_score - (failed_count * 0.6) - (pending_count * 0.25) - (flagged_count * 0.35), 0.0)
 
+        engagement_multiplier_delta, engagement_trust_delta, engagement_penalty, engagement_flag = _classify_source_engagement(
+            impressions=impressions,
+            clicks=clicks,
+            interactions=interactions,
+        )
+        effective_score_multiplier = max(min(effective_score_multiplier + engagement_multiplier_delta, 1.45), 0.55)
+        effective_trust_score = max(effective_trust_score + engagement_trust_delta, 0.0)
+        ranking_penalty = max(ranking_penalty + engagement_penalty, 0.0)
+        if engagement_flag is not None and engagement_flag not in governance_flags:
+            governance_flags.append(engagement_flag)
+
         feedback_by_slug[spec.slug] = SourceGovernanceFeedback(
             failed_ingest_runs=failed_count,
             pending_stories=pending_count,
             flagged_stories=flagged_count,
+            engagement_impressions=impressions,
+            engagement_clicks=clicks,
+            engagement_interactions=interactions,
             effective_trust_score=round(effective_trust_score, 2),
             effective_score_multiplier=round(effective_score_multiplier, 2),
             governance_flags=governance_flags,
@@ -183,6 +234,56 @@ def build_section_governance_feedback(session: Session) -> dict[str, SectionGove
         )
 
     return feedback
+
+
+def _build_article_source_lookup(
+    session: Session,
+    source_slug_set: set[str],
+    stories_by_id: dict[int, Story],
+) -> dict[int, set[str]]:
+    articles = session.scalars(select(ArticleDraft).order_by(ArticleDraft.id.asc())).all()
+    article_sources: dict[int, set[str]] = {}
+    for article in articles:
+        related_sources: set[str] = set()
+        for story_id in article.story_ids:
+            story = stories_by_id.get(story_id)
+            if story is None:
+                continue
+            related_sources.update(tag for tag in story.tags if tag in source_slug_set)
+        if related_sources:
+            article_sources[article.id] = related_sources
+    return article_sources
+
+
+def _classify_source_engagement(*, impressions: int, clicks: int, interactions: int) -> tuple[float, float, float, str | None]:
+    if impressions <= 0:
+        return 0.0, 0.0, 0.0, None
+
+    click_through_rate = clicks / impressions
+    interaction_rate = interactions / impressions
+    if impressions >= 600 and (click_through_rate >= 0.08 or interaction_rate >= 0.05):
+        return 0.08, 0.35, -0.5, "high_engagement"
+    if impressions >= 250 and (click_through_rate >= 0.045 or interaction_rate >= 0.03):
+        return 0.04, 0.2, -0.2, "steady_engagement"
+    if impressions >= 250 and click_through_rate < 0.025 and interaction_rate < 0.02:
+        return -0.06, -0.25, 0.9, "low_engagement"
+    return 0.0, 0.0, 0.0, None
+
+
+def _read_metric(metrics: dict[str, object], key: str) -> int:
+    value = metrics.get(key)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
 
 
 def _coerce_float(value: object, fallback: float) -> float:

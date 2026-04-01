@@ -1020,3 +1020,193 @@ def test_ops_summary_exposes_high_performing_section_metrics() -> None:
         assert section_metrics["research"]["engagement_clicks"] == 117
         assert section_metrics["research"]["click_through_rate"] == 117 / 900
         assert section_metrics["research"]["momentum_tier"] == "hot"
+
+def test_periodic_digests_balance_section_mix_using_engagement_feedback() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_periodic_section_mix.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_payloads = [
+            _story_payload(
+                story_key="periodic-mix-research-1",
+                cluster_title="Reasoning benchmark paper sets the weekly agenda",
+                summary="A research benchmark is drawing strong downstream attention.",
+                score=8.8,
+                tags=["paper", "benchmark", "reasoning"],
+                source_links=["https://arxiv.org/abs/7000.0001"],
+            ),
+            _story_payload(
+                story_key="periodic-mix-research-2",
+                cluster_title="Another research paper strengthens evaluation coverage",
+                summary="A second research paper belongs in the same recap window.",
+                score=8.6,
+                tags=["paper", "evaluation", "reasoning"],
+                source_links=["https://arxiv.org/abs/7000.0002"],
+            ),
+            _story_payload(
+                story_key="periodic-mix-open-source-1",
+                cluster_title="Open-source agent runtime lands on GitHub",
+                summary="A new open-source runtime deserves recap coverage.",
+                score=8.1,
+                tags=["github", "agent", "runtime"],
+                source_links=["https://github.com/example/runtime-1"],
+            ),
+            _story_payload(
+                story_key="periodic-mix-open-source-2",
+                cluster_title="Open-source toolkit expands deployment support",
+                summary="A second open-source release belongs in the same recap.",
+                score=7.9,
+                tags=["github", "deployment", "toolkit"],
+                source_links=["https://github.com/example/runtime-2"],
+            ),
+        ]
+
+        story_ids: list[int] = []
+        for payload in story_payloads:
+            story_response = client.post("/stories", json=payload)
+            assert story_response.status_code == 201
+            story_id = story_response.json()["id"]
+            story_ids.append(story_id)
+            assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        research_seed_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-09", "story_ids": story_ids[:2]},
+        )
+        assert research_seed_response.status_code == 200
+        research_seed_article_id = research_seed_response.json()["id"]
+        publish_response = client.post(
+            f"/articles/{research_seed_article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": "2026-05-09T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        publish_job_id = publish_response.json()["jobs"][0]["id"]
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/result",
+            json={"status": "published", "external_id": "wx-periodic-mix-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{publish_job_id}/feedback",
+            json={"impressions": 1800, "clicks": 230, "interactions": 104},
+        ).status_code == 200
+
+        weekly_response = client.post(
+            "/articles/generate/weekly",
+            json={"target_date": "2026-05-10", "story_ids": story_ids},
+        )
+        assert weekly_response.status_code == 200
+        weekly_payload = weekly_response.json()
+
+        monthly_response = client.post(
+            "/articles/generate/monthly",
+            json={"target_date": "2026-05-31", "story_ids": story_ids},
+        )
+        assert monthly_response.status_code == 200
+        monthly_payload = monthly_response.json()
+
+        assert weekly_payload["sections"][0] == "research"
+        assert weekly_payload["story_keys"][0] == "periodic-mix-research-1"
+        assert weekly_payload["story_keys"][1] == "periodic-mix-open-source-1"
+        assert monthly_payload["sections"][0] == "research"
+        assert monthly_payload["story_keys"][0] == "periodic-mix-research-1"
+        assert monthly_payload["story_keys"][1] == "periodic-mix-open-source-1"
+
+def test_generate_digest_adapts_platform_variants_from_engagement_history() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_platform_copy_strategy.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        seed_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="platform-copy-seed-story",
+                cluster_title="Seed article establishes platform engagement history",
+                summary="A seed article exists only to create platform-specific performance signals.",
+                score=8.7,
+                tags=["analysis", "agent"],
+                source_links=["https://openai.com/blog/platform-seed"],
+            ),
+        )
+        next_story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="platform-copy-next-story",
+                cluster_title="Follow-up digest should adapt platform copy",
+                summary="The next digest should change its platform variants based on recorded engagement.",
+                score=8.9,
+                tags=["release", "workflow"],
+                source_links=["https://openai.com/blog/platform-follow-up"],
+            ),
+        )
+        assert seed_story_response.status_code == 201
+        assert next_story_response.status_code == 201
+        seed_story_id = seed_story_response.json()["id"]
+        next_story_id = next_story_response.json()["id"]
+        assert client.post(f"/stories/{seed_story_id}/approve").status_code == 200
+        assert client.post(f"/stories/{next_story_id}/approve").status_code == 200
+
+        seed_article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-11", "story_ids": [seed_story_id]},
+        )
+        assert seed_article_response.status_code == 200
+        seed_article_id = seed_article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{seed_article_id}/publish",
+            json={"platforms": ["wechat", "x", "telegram"], "scheduled_for": "2026-05-11T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs_by_platform = {job["platform"]: job["id"] for job in publish_response.json()["jobs"]}
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/result",
+            json={"status": "published", "external_id": "wx-platform-copy-seed"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/result",
+            json={"status": "published", "external_id": "x-platform-copy-seed"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/result",
+            json={"status": "published", "external_id": "tg-platform-copy-seed"},
+        ).status_code == 200
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/feedback",
+            json={"impressions": 1400, "opens": 560, "clicks": 92, "interactions": 24},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/feedback",
+            json={"impressions": 900, "clicks": 58, "interactions": 61},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/feedback",
+            json={"impressions": 1100, "clicks": 126, "interactions": 19},
+        ).status_code == 200
+
+        next_article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-12", "story_ids": [next_story_id]},
+        )
+        assert next_article_response.status_code == 200
+        next_article_id = next_article_response.json()["id"]
+
+        variants_response = client.get(f"/articles/{next_article_id}/variants")
+        assert variants_response.status_code == 200
+        variants_by_platform = {variant["platform"]: variant["content"] for variant in variants_response.json()}
+
+        assert "\u7f16\u8f91\u6458\u8981\uff1a" in variants_by_platform["wechat"]
+        assert "\u672c\u671f\u680f\u76ee\uff1a" in variants_by_platform["wechat"]
+        assert "\u4f60\u6700\u60f3\u7ee7\u7eed\u8ddf\u8fdb\u54ea\u6761\uff1f" in variants_by_platform["x"]
+        assert "\u901f\u89c8\u6e05\u5355" in variants_by_platform["telegram"]

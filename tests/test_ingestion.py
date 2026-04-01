@@ -285,3 +285,112 @@ def test_ingest_pipeline_applies_section_feedback_to_story_ranking() -> None:
 
         assert "section_feedback_watch" in research_story["risk_flags"]
         assert research_story["score"] < github_story["score"]
+
+
+def test_source_catalog_endpoint_applies_engagement_feedback_to_effective_weights() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_source_engagement_feedback.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        openai_story_response = client.post(
+            "/stories",
+            json={
+                "story_key": "source-engagement-openai-blog",
+                "cluster_title": "OpenAI blog release drives strong distribution clicks",
+                "summary": "A post from the OpenAI blog is driving strong downstream engagement.",
+                "highlights": ["Strong source signal"],
+                "source_links": ["https://openai.com/news/strong-distribution"],
+                "tags": ["openai-blog", "blog", "distribution"],
+                "risk_flags": [],
+                "score": 8.4,
+                "item_count": 1,
+                "first_seen_at": "2026-05-07T09:00:00Z",
+                "last_seen_at": "2026-05-07T09:00:00Z",
+            },
+        )
+        reddit_story_response = client.post(
+            "/stories",
+            json={
+                "story_key": "source-engagement-reddit-ml",
+                "cluster_title": "Reddit recap struggles to convert distribution",
+                "summary": "A community repost from Reddit receives impressions but weak click-through.",
+                "highlights": ["Needs source quality review"],
+                "source_links": ["https://reddit.com/r/MachineLearning/comments/example"],
+                "tags": ["reddit-ml", "community", "recap"],
+                "risk_flags": [],
+                "score": 6.3,
+                "item_count": 1,
+                "first_seen_at": "2026-05-08T09:00:00Z",
+                "last_seen_at": "2026-05-08T09:00:00Z",
+            },
+        )
+        assert openai_story_response.status_code == 201
+        assert reddit_story_response.status_code == 201
+
+        openai_story_id = openai_story_response.json()["id"]
+        reddit_story_id = reddit_story_response.json()["id"]
+        assert client.post(f"/stories/{openai_story_id}/approve").status_code == 200
+        assert client.post(f"/stories/{reddit_story_id}/approve").status_code == 200
+
+        openai_article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-07", "story_ids": [openai_story_id]},
+        )
+        assert openai_article_response.status_code == 200
+        openai_article_id = openai_article_response.json()["id"]
+        openai_publish_response = client.post(
+            f"/articles/{openai_article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": "2026-05-07T18:00:00Z"},
+        )
+        assert openai_publish_response.status_code == 200
+        openai_job_id = openai_publish_response.json()["jobs"][0]["id"]
+        assert client.post(
+            f"/publish-jobs/{openai_job_id}/result",
+            json={"status": "published", "external_id": "wx-openai-source-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{openai_job_id}/feedback",
+            json={"impressions": 1600, "clicks": 208, "interactions": 92},
+        ).status_code == 200
+
+        reddit_article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-08", "story_ids": [reddit_story_id]},
+        )
+        assert reddit_article_response.status_code == 200
+        reddit_article_id = reddit_article_response.json()["id"]
+        reddit_publish_response = client.post(
+            f"/articles/{reddit_article_id}/publish",
+            json={"platforms": ["x"], "scheduled_for": "2026-05-08T18:00:00Z"},
+        )
+        assert reddit_publish_response.status_code == 200
+        reddit_job_id = reddit_publish_response.json()["jobs"][0]["id"]
+        assert client.post(
+            f"/publish-jobs/{reddit_job_id}/result",
+            json={"status": "published", "external_id": "x-reddit-source-1"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{reddit_job_id}/feedback",
+            json={"impressions": 700, "clicks": 10, "interactions": 6},
+        ).status_code == 200
+
+        response = client.get("/sources")
+        assert response.status_code == 200
+        payload = response.json()
+
+        openai_blog = next(item for item in payload if item["slug"] == "openai-blog")
+        reddit_ml = next(item for item in payload if item["slug"] == "reddit-ml")
+
+        assert openai_blog["feedback_signals"]["engagement_impressions"] == 1600
+        assert openai_blog["feedback_signals"]["engagement_clicks"] == 208
+        assert openai_blog["effective_score_multiplier"] > openai_blog["config"]["score_multiplier"]
+        assert openai_blog["effective_trust_score"] > openai_blog["config"]["trust_score"]
+        assert reddit_ml["feedback_signals"]["engagement_impressions"] == 700
+        assert reddit_ml["feedback_signals"]["engagement_clicks"] == 10
+        assert reddit_ml["effective_score_multiplier"] < reddit_ml["config"]["score_multiplier"]
+        assert "low_engagement" in reddit_ml["governance_flags"]

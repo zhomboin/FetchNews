@@ -794,6 +794,12 @@ a {
   color: #8e7047;
 }
 
+.source-chip-soft {
+  border: 1px solid rgba(111, 143, 133, 0.16);
+  background: linear-gradient(180deg, rgba(250, 254, 252, 0.9), rgba(240, 247, 243, 0.8));
+  color: #4f6a5a;
+}
+
 .run-errors {
   display: grid;
   gap: 6px;
