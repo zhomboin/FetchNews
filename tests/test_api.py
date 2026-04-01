@@ -1210,3 +1210,112 @@ def test_generate_digest_adapts_platform_variants_from_engagement_history() -> N
         assert "\u672c\u671f\u680f\u76ee\uff1a" in variants_by_platform["wechat"]
         assert "\u4f60\u6700\u60f3\u7ee7\u7eed\u8ddf\u8fdb\u54ea\u6761\uff1f" in variants_by_platform["x"]
         assert "\u901f\u89c8\u6e05\u5355" in variants_by_platform["telegram"]
+
+
+def test_periodic_variants_combine_platform_strategy_with_section_mix() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase06_periodic_platform_variants.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_payloads = [
+            _story_payload(
+                story_key="periodic-variant-research-1",
+                cluster_title="Reasoning benchmark paper anchors the recap",
+                summary="Research momentum should shape the weekly and monthly variants.",
+                score=8.9,
+                tags=["paper", "benchmark", "reasoning"],
+                source_links=["https://arxiv.org/abs/8000.0001"],
+            ),
+            _story_payload(
+                story_key="periodic-variant-open-source-1",
+                cluster_title="Open-source runtime broadens deployment coverage",
+                summary="Open-source tooling should appear in the same recap window.",
+                score=8.3,
+                tags=["github", "runtime", "deployment"],
+                source_links=["https://github.com/example/runtime-periodic"],
+            ),
+        ]
+
+        story_ids: list[int] = []
+        for payload in story_payloads:
+            story_response = client.post("/stories", json=payload)
+            assert story_response.status_code == 201
+            story_id = story_response.json()["id"]
+            story_ids.append(story_id)
+            assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        seed_article_response = client.post(
+            "/articles/generate/daily",
+            json={"target_date": "2026-05-13", "story_ids": story_ids},
+        )
+        assert seed_article_response.status_code == 200
+        seed_article_id = seed_article_response.json()["id"]
+        publish_response = client.post(
+            f"/articles/{seed_article_id}/publish",
+            json={"platforms": ["wechat", "x", "telegram"], "scheduled_for": "2026-05-13T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs_by_platform = {job["platform"]: job["id"] for job in publish_response.json()["jobs"]}
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/result",
+            json={"status": "published", "external_id": "wx-periodic-variant-seed"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/result",
+            json={"status": "published", "external_id": "x-periodic-variant-seed"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/result",
+            json={"status": "published", "external_id": "tg-periodic-variant-seed"},
+        ).status_code == 200
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/feedback",
+            json={"impressions": 1500, "opens": 620, "clicks": 88, "interactions": 18},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/feedback",
+            json={"impressions": 950, "clicks": 54, "interactions": 64},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/feedback",
+            json={"impressions": 1200, "clicks": 132, "interactions": 17},
+        ).status_code == 200
+
+        weekly_response = client.post(
+            "/articles/generate/weekly",
+            json={"target_date": "2026-05-17", "story_ids": story_ids},
+        )
+        assert weekly_response.status_code == 200
+        weekly_article_id = weekly_response.json()["id"]
+        weekly_variants = {
+            variant["platform"]: variant["content"]
+            for variant in client.get(f"/articles/{weekly_article_id}/variants").json()
+        }
+
+        monthly_response = client.post(
+            "/articles/generate/monthly",
+            json={"target_date": "2026-05-31", "story_ids": story_ids},
+        )
+        assert monthly_response.status_code == 200
+        monthly_article_id = monthly_response.json()["id"]
+        monthly_variants = {
+            variant["platform"]: variant["content"]
+            for variant in client.get(f"/articles/{monthly_article_id}/variants").json()
+        }
+
+        assert "\u672c\u5468\u4e3b\u7ebf\u680f\u76ee\uff1a" in weekly_variants["wechat"]
+        assert "\u680f\u76ee\u8f6e\u503c\uff1a" in weekly_variants["wechat"]
+        assert "\u672c\u5468\u6700\u503c\u5f97\u7ee7\u7eed\u8ffd\u8e2a\u7684\u680f\u76ee\u662f" in weekly_variants["x"]
+        assert "\u680f\u76ee\u901f\u89c8" in weekly_variants["telegram"]
+
+        assert "\u672c\u6708\u4e3b\u7ebf\u680f\u76ee\uff1a" in monthly_variants["wechat"]
+        assert "\u680f\u76ee\u8f6e\u503c\uff1a" in monthly_variants["wechat"]
+        assert "\u672c\u6708\u6700\u503c\u5f97\u7ee7\u7eed\u8ffd\u8e2a\u7684\u680f\u76ee\u662f" in monthly_variants["x"]
+        assert "\u680f\u76ee\u901f\u89c8" in monthly_variants["telegram"]

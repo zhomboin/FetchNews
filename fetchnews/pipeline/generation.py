@@ -39,7 +39,7 @@ def generate_digest(
         sections=article_sections,
     )
 
-    posts = _build_platform_posts(article, ordered, article_sections, platform_profiles or {})
+    posts = _build_platform_posts(article, ordered, article_sections, period_type, platform_profiles or {})
     return DailyDigest(article=article, posts=posts)
 
 
@@ -124,6 +124,7 @@ def _build_platform_posts(
     article: ArticleDraftPayload,
     stories: list[StoryCandidate],
     article_sections: list[str],
+    period_type: str,
     platform_profiles: dict[str, PlatformCopyProfile],
 ) -> dict[str, str]:
     section_summary = " / ".join(get_section_label(section) for section in article_sections[:2]) or "综合观察"
@@ -132,20 +133,32 @@ def _build_platform_posts(
     top_tags = " #" + " #".join(top_story.tags[:2]) if top_story and top_story.tags else ""
 
     return {
-        "wechat": _build_wechat_post(article, stories, section_summary, platform_profiles.get("wechat")),
-        "x": _build_x_post(article, top_label, section_summary, top_story, top_tags, platform_profiles.get("x")),
-        "telegram": _build_telegram_post(article, stories, platform_profiles.get("telegram")),
+        "wechat": _build_wechat_post(article, stories, article_sections, section_summary, period_type, platform_profiles.get("wechat")),
+        "x": _build_x_post(article, top_label, article_sections, section_summary, period_type, top_story, top_tags, platform_profiles.get("x")),
+        "telegram": _build_telegram_post(article, stories, article_sections, period_type, platform_profiles.get("telegram")),
     }
 
 
 def _build_wechat_post(
     article: ArticleDraftPayload,
     stories: list[StoryCandidate],
+    article_sections: list[str],
     section_summary: str,
+    period_type: str,
     profile: PlatformCopyProfile | None,
 ) -> str:
     strategy = profile.strategy if profile is not None else "balanced"
+    period_scope = _build_period_scope_label(period_type)
+    lead_section = _build_lead_section_label(article_sections)
     if strategy == "editorial":
+        if period_type in {"weekly", "monthly"}:
+            return "\n\n".join([
+                article.title,
+                f"编辑摘要：{article.summary}",
+                f"{period_scope}主线栏目：{lead_section}",
+                f"栏目轮值：{section_summary}",
+                article.body,
+            ])
         return "\n\n".join([
             article.title,
             f"编辑摘要：{article.summary}",
@@ -153,6 +166,14 @@ def _build_wechat_post(
             article.body,
         ])
     if strategy == "actionable":
+        if period_type in {"weekly", "monthly"}:
+            return "\n\n".join([
+                article.title,
+                f"{period_scope}主线栏目：{lead_section}",
+                f"栏目轮值：{section_summary}",
+                _build_story_bullet_list(stories),
+                article.body,
+            ])
         return "\n\n".join([
             article.title,
             "先看这 3 条：",
@@ -165,27 +186,46 @@ def _build_wechat_post(
 def _build_x_post(
     article: ArticleDraftPayload,
     top_label: str,
+    article_sections: list[str],
     section_summary: str,
+    period_type: str,
     top_story: StoryCandidate | None,
     top_tags: str,
     profile: PlatformCopyProfile | None,
 ) -> str:
     strategy = profile.strategy if profile is not None else "headline"
+    period_scope = _build_period_scope_label(period_type)
+    lead_section = _build_lead_section_label(article_sections)
     if strategy == "conversational":
         focus_line = _build_focus_line(top_story)
-        return f"{article.title}｜{section_summary}：{top_label}。{focus_line}。你最想继续跟进哪条？{top_tags}"[:280]
+        if period_type in {"weekly", "monthly"}:
+            return f"{article.title}?{period_scope}最值得继续追踪的栏目是{lead_section}：{top_label}。{focus_line}。你最想继续跟进哪条？{top_tags}"[:280]
+        return f"{article.title}?{section_summary}：{top_label}。{focus_line}。你最想继续跟进哪条？{top_tags}"[:280]
     if strategy == "link_out":
-        return f"{article.title}｜{section_summary}：{top_label}。今天更偏工具与来源速览。{top_tags}"[:280]
-    return f"{article.title}｜{section_summary}：{top_label}{top_tags}"[:280]
+        if period_type in {"weekly", "monthly"}:
+            return f"{article.title}?{period_scope}栏目轮值：{section_summary}。先看 {lead_section}。{top_tags}"[:280]
+        return f"{article.title}?{section_summary}：{top_label}。今天更偏工具与来源速览。{top_tags}"[:280]
+    return f"{article.title}?{section_summary}：{top_label}{top_tags}"[:280]
 
 
 def _build_telegram_post(
     article: ArticleDraftPayload,
     stories: list[StoryCandidate],
+    article_sections: list[str],
+    period_type: str,
     profile: PlatformCopyProfile | None,
 ) -> str:
     strategy = profile.strategy if profile is not None else "digest"
+    section_summary = " / ".join(get_section_label(section) for section in article_sections[:3]) or "综合观察"
     if strategy == "bulletin":
+        if period_type in {"weekly", "monthly"}:
+            return "\n\n".join([
+                article.title,
+                "栏目速览",
+                section_summary,
+                _build_story_bullet_list(stories),
+                article.summary,
+            ])
         return "\n\n".join([
             article.title,
             "速览清单",
@@ -193,6 +233,14 @@ def _build_telegram_post(
             article.summary,
         ])
     if strategy == "discussion":
+        if period_type in {"weekly", "monthly"}:
+            return "\n\n".join([
+                article.title,
+                "栏目速览",
+                section_summary,
+                _build_discussion_prompts(stories),
+                article.summary,
+            ])
         return "\n\n".join([
             article.title,
             "讨论焦点",
@@ -200,6 +248,20 @@ def _build_telegram_post(
             article.summary,
         ])
     return f"{article.title}\n\n{article.summary}\n\n{article.body}"
+
+
+def _build_period_scope_label(period_type: str) -> str:
+    if period_type == "weekly":
+        return "本周"
+    if period_type == "monthly":
+        return "本月"
+    return "本期"
+
+
+def _build_lead_section_label(article_sections: list[str]) -> str:
+    if not article_sections:
+        return "综合观察"
+    return get_section_label(article_sections[0])
 
 
 def _build_story_bullet_list(stories: list[StoryCandidate], limit: int = 3) -> str:
