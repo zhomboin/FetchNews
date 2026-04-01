@@ -61,6 +61,7 @@ For the detailed implementation snapshot, see:
 - Master project plan: [docs/project-plan/00-master-plan.md](/D:/Code/Project/FetchNews/docs/project-plan/00-master-plan.md)
 - Project plan index: [docs/project-plan/README.md](/D:/Code/Project/FetchNews/docs/project-plan/README.md)
 - Getting started: [docs/getting-started.md](/D:/Code/Project/FetchNews/docs/getting-started.md)
+- Local PostgreSQL setup: [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
 - Frontend style: [docs/frontend-style.md](/D:/Code/Project/FetchNews/docs/frontend-style.md)
 - TypeScript style: [docs/typescript-style.md](/D:/Code/Project/FetchNews/docs/typescript-style.md)
 - Content sources: [docs/content-sources.md](/D:/Code/Project/FetchNews/docs/content-sources.md)
@@ -82,6 +83,12 @@ Then open:
 More details:
 
 - [docs/getting-started.md](/D:/Code/Project/FetchNews/docs/getting-started.md)
+
+## Database Note
+
+The local Docker Compose path now assumes you already run PostgreSQL on the host machine. For the exact connection settings, hostnames, and initialization SQL, see:
+
+- [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
 
 ## Next High-Priority Work
 

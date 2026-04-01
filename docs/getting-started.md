@@ -241,3 +241,9 @@ npm.cmd run build
 5. 确认列表中出现新的采集批次
 
 如果这五步都成立，说明当前阶段的主链路已经跑通。
+
+## PostgreSQL Note
+
+The Docker Compose quick-start path now assumes PostgreSQL is already running on the host machine. For manual setup details, hostnames, and initialization SQL, see:
+
+- [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)

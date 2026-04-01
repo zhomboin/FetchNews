@@ -10,8 +10,10 @@ services:
     volumes:
       - ./:/app
     environment:
-      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
       APP_REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
 
@@ -22,8 +24,10 @@ services:
     volumes:
       - ./:/app
     environment:
-      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
       APP_REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
 
@@ -34,8 +38,10 @@ services:
     volumes:
       - ./:/app
     environment:
-      APP_DATABASE_URL: sqlite:///./fetchnews.db
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
       APP_REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
 
