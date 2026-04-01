@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
 from fetchnews.schemas import (
+    AlertRecordResponse,
     FailureGroupResponse,
     FeedbackRecommendationResponse,
     OpsSummaryResponse,
@@ -70,6 +71,12 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
     engagement_clicks_total = sum(metric.engagement_clicks for metric in publish_platform_metrics)
     engagement_interactions_total = sum(metric.engagement_interactions for metric in publish_platform_metrics)
 
+    feedback_recommendations = _build_feedback_recommendations(
+        section_review_metrics=section_review_metrics,
+        publish_platform_metrics=publish_platform_metrics,
+        failure_groups=recent_failure_groups,
+    )
+
     return OpsSummaryResponse(
         ingest_runs_total=ingest_runs_total,
         ingest_runs_failed=ingest_runs_failed,
@@ -91,15 +98,103 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
         engagement_opens_total=engagement_opens_total,
         engagement_clicks_total=engagement_clicks_total,
         engagement_interactions_total=engagement_interactions_total,
+        alerts=_build_alerts(
+            ingest_runs_failed=ingest_runs_failed,
+            publish_jobs_failed=publish_jobs_failed,
+            due_publish_jobs=due_publish_jobs,
+            stories_pending=stories_pending,
+            recent_failure_groups=recent_failure_groups,
+        ),
         recent_failure_groups=recent_failure_groups,
         publish_platform_metrics=publish_platform_metrics,
         section_review_metrics=section_review_metrics,
-        feedback_recommendations=_build_feedback_recommendations(
-            section_review_metrics=section_review_metrics,
-            publish_platform_metrics=publish_platform_metrics,
-            failure_groups=recent_failure_groups,
-        ),
+        feedback_recommendations=feedback_recommendations,
     )
+
+
+def _build_alerts(
+    *,
+    ingest_runs_failed: int,
+    publish_jobs_failed: int,
+    due_publish_jobs: int,
+    stories_pending: int,
+    recent_failure_groups: list[FailureGroupResponse],
+) -> list[AlertRecordResponse]:
+    alerts: list[AlertRecordResponse] = []
+
+    if publish_jobs_failed > 0:
+        alerts.append(
+            AlertRecordResponse(
+                severity="critical",
+                category="publish",
+                title="Publish failures need operator attention",
+                summary=f"{publish_jobs_failed} publish jobs are currently in a failed state.",
+                suggestion="Inspect the failed platform jobs first, verify credentials or moderation status, then retry only the affected jobs.",
+                count=publish_jobs_failed,
+            )
+        )
+
+    if ingest_runs_failed > 0:
+        alerts.append(
+            AlertRecordResponse(
+                severity="warning",
+                category="ingest",
+                title="Source ingestion is unstable",
+                summary=f"{ingest_runs_failed} ingest runs recently finished with errors.",
+                suggestion="Review the failing connectors, confirm rate limits or feed health, and rerun only the affected sources.",
+                count=ingest_runs_failed,
+            )
+        )
+
+    if due_publish_jobs > 0:
+        alerts.append(
+            AlertRecordResponse(
+                severity="warning",
+                category="schedule",
+                title="Scheduled jobs are overdue",
+                summary=f"{due_publish_jobs} publish jobs are due but still not completed.",
+                suggestion="Dispatch due jobs, poll terminal states, and check worker health before queuing more posts.",
+                count=due_publish_jobs,
+            )
+        )
+
+    if stories_pending > 0:
+        alerts.append(
+            AlertRecordResponse(
+                severity="info",
+                category="review",
+                title="Editorial review backlog is building",
+                summary=f"{stories_pending} stories are still pending manual review.",
+                suggestion="Clear flagged stories first so digest generation stays biased toward approved, primary-source coverage.",
+                count=stories_pending,
+            )
+        )
+
+    for group in recent_failure_groups[:2]:
+        if not group.targets:
+            continue
+        alerts.append(
+            AlertRecordResponse(
+                severity="warning" if group.category == "ingest" else "critical",
+                category=group.category,
+                title=f"Repeated {group.category} failure: {group.reason}",
+                summary=f"The latest grouped failures affected {', '.join(group.targets[:3])}.",
+                target=group.targets[0],
+                suggestion=group.suggestion,
+                count=group.count,
+            )
+        )
+
+    alerts.sort(key=lambda alert: (_alert_severity_rank(alert.severity), -alert.count, alert.category, alert.title))
+    return alerts[:8]
+
+
+def _alert_severity_rank(severity: str) -> int:
+    if severity == "critical":
+        return 0
+    if severity == "warning":
+        return 1
+    return 2
 
 
 def _build_failure_groups(session: Session) -> list[FailureGroupResponse]:

@@ -1,6 +1,16 @@
-version: "3.9"
-
 services:
+  migrate:
+    image: python:3.11-slim
+    working_dir: /app
+    command: sh -c "pip install -e .[dev] && alembic upgrade head"
+    volumes:
+      - ./:/app
+    environment:
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
+      APP_DATABASE_BOOTSTRAP_MODE: ${APP_DATABASE_BOOTSTRAP_MODE:-skip}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   api:
     image: python:3.11-slim
     working_dir: /app
@@ -11,10 +21,16 @@ services:
       - ./:/app
     environment:
       APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
+      APP_DATABASE_BOOTSTRAP_MODE: ${APP_DATABASE_BOOTSTRAP_MODE:-skip}
       APP_REDIS_URL: redis://redis:6379/0
+      APP_AUTH_ENABLED: ${APP_AUTH_ENABLED:-true}
+      APP_AUTH_SECRET_KEY: ${APP_AUTH_SECRET_KEY:-fetchnews-dev-secret}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-admin-secret}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      - migrate
       - redis
 
   worker:
@@ -25,10 +41,16 @@ services:
       - ./:/app
     environment:
       APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
+      APP_DATABASE_BOOTSTRAP_MODE: ${APP_DATABASE_BOOTSTRAP_MODE:-skip}
       APP_REDIS_URL: redis://redis:6379/0
+      APP_AUTH_ENABLED: ${APP_AUTH_ENABLED:-true}
+      APP_AUTH_SECRET_KEY: ${APP_AUTH_SECRET_KEY:-fetchnews-dev-secret}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-admin-secret}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      - migrate
       - redis
 
   beat:
@@ -39,10 +61,16 @@ services:
       - ./:/app
     environment:
       APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
+      APP_DATABASE_BOOTSTRAP_MODE: ${APP_DATABASE_BOOTSTRAP_MODE:-skip}
       APP_REDIS_URL: redis://redis:6379/0
+      APP_AUTH_ENABLED: ${APP_AUTH_ENABLED:-true}
+      APP_AUTH_SECRET_KEY: ${APP_AUTH_SECRET_KEY:-fetchnews-dev-secret}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-admin-secret}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      - migrate
       - redis
 
   web:

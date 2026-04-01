@@ -14,6 +14,7 @@ FetchNews is now a working internal prototype instead of a documentation-only re
 6. review content in the admin console
 7. schedule publishing jobs, write back results, retry failures, and record feedback
 8. feed source, section, and platform feedback back into ranking and copy strategy
+9. protect the console with login, roles, audit logs, alerts, and migrations
 
 Current phase status:
 
@@ -24,8 +25,6 @@ Current phase status:
 - `Phase 04`: baseline completed
 - `Phase 05`: baseline completed
 - `Phase 06`: in progress
-
-Here, "baseline completed" means the internal workflow runs, but not every production-grade or external integration requirement is done.
 
 ## What Is Already Implemented
 
@@ -60,13 +59,6 @@ Implemented:
 - ingest monitoring page
 - default `Celery beat` ingest schedule
 
-Key endpoints:
-
-- `GET /sources`
-- `POST /ingest/run`
-- `GET /ingest/runs`
-- `GET /ingest/runs/{id}`
-
 ### Phase 03: Normalize, Deduplicate, Cluster
 
 Implemented:
@@ -78,20 +70,6 @@ Implemented:
 - risk flags
 - manual story approval
 - pipeline rebuild endpoint
-
-Key endpoints:
-
-- `GET /normalized-items`
-- `POST /pipeline/stories/rebuild`
-- `GET /stories`
-- `POST /stories/{id}/approve`
-
-Frontend coverage:
-
-- story list
-- filtering by keyword and review state
-- risk visualization
-- review action
 
 ### Phase 04: Content Generation
 
@@ -105,23 +83,6 @@ Implemented:
 - section-based article output
 - platform variants for `wechat`, `x`, and `telegram`
 
-Key endpoints:
-
-- `POST /articles/generate/daily`
-- `POST /articles/generate/weekly`
-- `POST /articles/generate/monthly`
-- `GET /articles`
-- `GET /articles/{id}`
-- `GET /articles/{id}/variants`
-
-Frontend coverage:
-
-- draft list
-- draft detail view
-- long-form preview
-- platform variant preview
-- generation controls
-
 ### Phase 05: Review and Publishing
 
 Implemented:
@@ -134,24 +95,9 @@ Implemented:
 - due-job dispatch and poll flow
 - publish feedback writeback
 
-Key endpoints:
+### Phase 06: Optimization, Ops, and Hardening
 
-- `POST /articles/{id}/publish`
-- `GET /publish-jobs`
-- `POST /publish-jobs/dispatch-due`
-- `POST /publish-jobs/poll`
-- `POST /publish-jobs/{id}/result`
-- `POST /publish-jobs/{id}/retry`
-- `POST /publish-jobs/{id}/feedback`
-
-Note:
-
-- the execution and polling workflow is in place
-- real platform connectors are still pending
-
-### Phase 06: Optimization and Operations
-
-Already implemented in this phase:
+Implemented:
 
 - unified ops summary
 - recent failure grouping
@@ -165,16 +111,12 @@ Already implemented in this phase:
 - weekly / monthly section mix
 - platform copy strategy driven by historical engagement
 - weekly / monthly variants that combine platform strategy with section mix
-
-Key endpoint:
-
-- `GET /ops/summary`
-
-Frontend coverage:
-
-- ops dashboard
-- platform / section / failure-source drill-down
-- ingestion page governance indicators
+- Alembic migration baseline
+- PostgreSQL-first local path
+- login, role-based access control, and bootstrap admin setup
+- audit log persistence for key mutations
+- ops alerts surfaced in the SPA
+- frontend test baseline with `Vitest`
 
 ## Current Admin Pages
 
@@ -184,6 +126,7 @@ The React admin console now covers:
 - `/ingestion`: ingestion runs and source governance
 - `/stories`: story review, filtering, and risk view
 - `/articles`: draft center, variant preview, and publish review
+- `/publishing`: publishing-centric ops view
 - `/ops/details`: drill-down for sections, platforms, and failures
 
 ## Current Limitations
@@ -217,11 +160,11 @@ Still missing or incomplete:
 
 Still missing or incomplete:
 
-- authentication and permission control
-- Alembic migrations
-- production-first PostgreSQL setup as the main path
-- dedicated frontend test baseline
-- fuller monitoring, alerting, and audit support
+- user management UI and credential rotation flow
+- audit-log browsing UI
+- external alert delivery channels
+- production monitoring stack
+- staged database migration workflow for shared environments
 
 ## Recommended Next Plan
 
@@ -230,7 +173,7 @@ Still missing or incomplete:
 1. implement real external publishing connectors
 2. strengthen real source connectors
 3. integrate a real LLM provider for summaries and draft generation
-4. formalize database migrations and deployment setup
+4. extend alerting and audit-log inspection beyond the current baseline
 
 ### Mid-Term Improvements
 
@@ -241,7 +184,7 @@ Still missing or incomplete:
 
 ### Platform and Ops Hardening
 
-1. add login and permissions
-2. add frontend tests
-3. add more alerting and diagnostics
-4. add richer edit history and audit support
+1. add audit-log inspection views and filters
+2. add external alert delivery
+3. add richer operator history and change tracking
+4. add deployment, backup, and restore runbooks

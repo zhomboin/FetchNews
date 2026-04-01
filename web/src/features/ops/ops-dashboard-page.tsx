@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import {
+  AlertRecord,
   ArticleDraftRecord,
   FailureGroupRecord,
   FeedbackRecommendationRecord,
@@ -149,6 +150,10 @@ function pickRecentArticles(articles: ArticleDraftRecord[]): ArticleDraftRecord[
     .slice(0, 5);
 }
 
+function pickAlerts(alerts: AlertRecord[]): AlertRecord[] {
+  return alerts.slice(0, 6);
+}
+
 function pickFailureGroups(groups: FailureGroupRecord[]): FailureGroupRecord[] {
   return groups.slice(0, 6);
 }
@@ -205,6 +210,10 @@ function formatMomentumTier(momentumTier: string): string {
 
 function pickRecommendations(recommendations: FeedbackRecommendationRecord[]): FeedbackRecommendationRecord[] {
   return recommendations.slice(0, 6);
+}
+
+function getAlertTone(alert: AlertRecord): "watch" | "calm" {
+  return alert.severity === "info" ? "calm" : "watch";
 }
 
 function getFailureTone(group: FailureGroupRecord): "watch" | "calm" {
@@ -303,6 +312,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
   const metrics = buildMetrics(summary);
   const recentJobs = pickRecentJobs(publishJobsQuery.data ?? []);
   const recentArticles = pickRecentArticles(articlesQuery.data ?? []);
+  const alerts = pickAlerts(summary?.alerts ?? []);
   const failureGroups = pickFailureGroups(summary?.recentFailureGroups ?? []);
   const platformMetrics = pickPlatformMetrics(summary?.publishPlatformMetrics ?? []);
   const sectionMetrics = pickSectionMetrics(summary?.sectionReviewMetrics ?? []);
@@ -343,6 +353,35 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
             <span>{metric.note}</span>
           </article>
         ))}
+      </section>
+
+
+      <section className="ops-alert-strip" aria-label="Operations alerts">
+        {alerts.length === 0 ? (
+          <article className="ops-alert-card" data-tone="calm">
+            <div>
+              <p>Alerts</p>
+              <strong>No active alerts</strong>
+            </div>
+            <span>Current ingestion, review, and publishing signals look stable.</span>
+          </article>
+        ) : (
+          alerts.map((alert) => (
+            <article key={`${alert.category}-${alert.title}`} className="ops-alert-card" data-tone={getAlertTone(alert)}>
+              <div className="ops-alert-head">
+                <div>
+                  <p>{alert.category}</p>
+                  <strong>{alert.title}</strong>
+                </div>
+                <span className={`status-pill status-${alert.severity === "critical" ? "failed" : alert.severity === "warning" ? "pending" : "approved"}`}>
+                  {alert.count}
+                </span>
+              </div>
+              <span>{alert.summary}</span>
+              <p className="failure-suggestion">{alert.suggestion}</p>
+            </article>
+          ))
+        )}
       </section>
 
       <section className="ops-grid">

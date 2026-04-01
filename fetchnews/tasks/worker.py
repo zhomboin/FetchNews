@@ -29,16 +29,26 @@ celery_app.conf.beat_schedule = {
 }
 
 
+def _prepare_database(resolved_settings: Settings) -> tuple[object, Any]:
+    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
+    if resolved_settings.environment == "test":
+        Base.metadata.drop_all(bind=engine)
+    init_database(
+        engine,
+        database_url=resolved_settings.database_url,
+        environment=resolved_settings.environment,
+        bootstrap_mode=resolved_settings.database_bootstrap_mode,
+    )
+    return engine, session_factory
+
+
 def run_ingestion_job(
     source_slugs: list[str] | None = None,
     settings: Settings | None = None,
     connector_overrides: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     resolved_settings = settings or Settings()
-    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
-    if resolved_settings.environment == "test":
-        Base.metadata.drop_all(bind=engine)
-    init_database(engine)
+    _engine, session_factory = _prepare_database(resolved_settings)
 
     connector_registry = build_default_connector_registry()
     if connector_overrides:
@@ -58,10 +68,7 @@ def run_dispatch_due_publish_jobs(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     resolved_settings = settings or Settings()
-    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
-    if resolved_settings.environment == "test":
-        Base.metadata.drop_all(bind=engine)
-    init_database(engine)
+    _engine, session_factory = _prepare_database(resolved_settings)
 
     publisher_registry = build_default_publisher_registry(resolved_settings)
     if publisher_overrides:
@@ -78,10 +85,7 @@ def run_poll_publish_jobs(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     resolved_settings = settings or Settings()
-    engine, session_factory = create_engine_and_factory(resolved_settings.database_url)
-    if resolved_settings.environment == "test":
-        Base.metadata.drop_all(bind=engine)
-    init_database(engine)
+    _engine, session_factory = _prepare_database(resolved_settings)
 
     publisher_registry = build_default_publisher_registry(resolved_settings)
     if publisher_overrides:

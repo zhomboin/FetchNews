@@ -22,6 +22,32 @@ class SourceSpec(BaseModel):
     governance_flags: list[str] = Field(default_factory=list)
 
 
+class AuthConfigResponse(BaseModel):
+    auth_enabled: bool
+
+
+class AuthLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthUserResponse(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    role: str
+    is_active: bool
+    last_login_at: datetime | None = None
+    created_at: datetime
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: AuthUserResponse
+
+
 class RawIngestedItem(BaseModel):
     source_slug: str
     external_id: str
@@ -249,6 +275,16 @@ class FailureGroupResponse(BaseModel):
     suggestion: str
 
 
+class AlertRecordResponse(BaseModel):
+    severity: Literal["critical", "warning", "info"]
+    category: str
+    title: str
+    summary: str
+    target: str | None = None
+    suggestion: str
+    count: int = 0
+
+
 class PublishPlatformMetricResponse(BaseModel):
     platform: str
     total_jobs: int
@@ -311,6 +347,7 @@ class OpsSummaryResponse(BaseModel):
     engagement_opens_total: int = 0
     engagement_clicks_total: int = 0
     engagement_interactions_total: int = 0
+    alerts: list[AlertRecordResponse] = Field(default_factory=list)
     recent_failure_groups: list[FailureGroupResponse] = Field(default_factory=list)
     publish_platform_metrics: list[PublishPlatformMetricResponse] = Field(default_factory=list)
     section_review_metrics: list[SectionReviewMetricResponse] = Field(default_factory=list)

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "AI news ingestion, summarization, review, and multi-platform publishing workflow"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.14.0,<2.0.0",
     "celery>=5.4.0,<6.0.0",
     "fastapi>=0.115.0,<1.0.0",
     "feedparser>=6.0.11,<7.0.0",

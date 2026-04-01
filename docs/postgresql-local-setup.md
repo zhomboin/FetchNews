@@ -1,69 +1,37 @@
 # Local PostgreSQL Setup
 
-This document explains how to switch the local FetchNews environment from the current SQLite default to a local PostgreSQL database.
+This document explains how FetchNews now uses host PostgreSQL as the preferred local database and how Alembic fits into that flow.
 
-## 1. Where PostgreSQL Is Configured
+## 1. Effective Database Settings
 
-Current database configuration entry points:
+Primary configuration entry points:
 
 - [fetchnews/settings.py](/D:/Code/Project/FetchNews/fetchnews/settings.py)
 - [.env.example](/D:/Code/Project/FetchNews/.env.example)
 - [docker-compose.yml](/D:/Code/Project/FetchNews/docker-compose.yml)
+- [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
 
-The effective backend database setting is:
+Key environment variables:
 
 - `APP_DATABASE_URL`
+- `APP_DATABASE_BOOTSTRAP_MODE`
 
-It is loaded in [fetchnews/settings.py](/D:/Code/Project/FetchNews/fetchnews/settings.py) as `database_url`.
-
-Recommended local default value:
-
-```env
-APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@localhost:5432/fetchnews
-```
-
-Important note:
-
-- the current code already supports PostgreSQL URLs
-- the current `docker-compose.yml` now assumes PostgreSQL is already running on the host machine
-- the current schema initialization path is `Base.metadata.create_all(...)`
-- there is no Alembic migration setup yet
-
-## 2. Recommended Local PostgreSQL Connection
-
-Recommended local connection string:
+Recommended local values:
 
 ```env
 APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@localhost:5432/fetchnews
+APP_DATABASE_BOOTSTRAP_MODE=skip
 ```
 
-If you use Docker for PostgreSQL on the same machine, `localhost:5432` is the simplest choice.
+Meaning:
 
-## 3. Python Dependency
+- PostgreSQL is now the preferred local development database
+- SQLAlchemy metadata bootstrap is still used automatically for `SQLite` and tests
+- PostgreSQL paths should use Alembic migrations instead of `create_all`
 
-To use PostgreSQL, make sure the Python environment includes a PostgreSQL driver.
+## 2. Minimal Initialization SQL
 
-Recommended driver:
-
-- `psycopg` (psycopg 3)
-
-If it is not already present in the environment, install it manually:
-
-```bash
-python -m pip install psycopg[binary]
-```
-
-If you prefer the older driver, this also works:
-
-```bash
-python -m pip install psycopg2-binary
-```
-
-## 4. Minimal Initialization SQL
-
-At the current project stage, PostgreSQL initialization is minimal. The application creates tables on startup through SQLAlchemy metadata, so the database-side SQL only needs to create the user and database.
-
-Recommended initialization SQL:
+Create the local database user and database first:
 
 ```sql
 CREATE USER fetchnews WITH PASSWORD 'fetchnews';
@@ -71,124 +39,86 @@ CREATE DATABASE fetchnews OWNER fetchnews;
 GRANT ALL PRIVILEGES ON DATABASE fetchnews TO fetchnews;
 ```
 
-If the user already exists, use a safer sequence such as:
-
-```sql
-ALTER USER fetchnews WITH PASSWORD 'fetchnews';
-```
-
-Then create the database if needed.
-
-## 5. Optional SQL For Future Work
-
-These are not required for the current codebase, but are likely to be useful later.
-
-### Optional extension for future vector search
+Optional extensions for later phases:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-Do not run this unless your PostgreSQL instance already has `pgvector` installed.
-
-### Optional extension for UUID / crypto helpers
-
-```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ```
 
-This is not required by the current models.
+Neither extension is required by the current codebase.
 
-## 6. How To Start PostgreSQL Locally
+## 3. How Schema Initialization Works Now
 
-### Option A: Existing local PostgreSQL service
+Current behavior is defined in [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py).
 
-If PostgreSQL is already installed locally:
+Bootstrap modes:
 
-1. create the user and database with the SQL above
-2. set `APP_DATABASE_URL` in `.env`
-3. start the API / worker / beat / web processes
+- `create_all`: create tables from SQLAlchemy metadata
+- `skip`: do not create tables automatically
+- `auto`: use `create_all` for tests and `SQLite`, use `skip` for PostgreSQL
 
+Recommended PostgreSQL path:
 
-## 7. What To Change In This Repo
+1. keep `APP_DATABASE_BOOTSTRAP_MODE=skip`
+2. run `alembic upgrade head`
+3. start the API, worker, and beat services
 
-### Option 1: Local `.env`
+## 4. Alembic Commands
 
-Create or update `.env` in the repo root:
+Initial migration assets now live in:
 
-```env
-APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@localhost:5432/fetchnews
-APP_REDIS_URL=redis://localhost:6379/0
-APP_CORS_ORIGINS=["http://localhost:5173"]
+- [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
+- [alembic/env.py](/D:/Code/Project/FetchNews/alembic/env.py)
+- [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/alembic/versions/20260401_0001_initial_schema.py)
+
+Apply the schema:
+
+```bash
+alembic upgrade head
 ```
 
-This is the simplest local override.
+Check the current version:
 
-### Option 2: `docker-compose.yml`
-
-The repository now ships with a Compose setup that connects application containers to the PostgreSQL instance running on the host machine. The `api`, `worker`, and `beat` services point to:
-
-```yaml
-environment:
-  APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews}
+```bash
+alembic current
 ```
 
-Important notes:
+Create a new migration after schema changes:
 
-- inside Docker containers, `localhost` means the container itself, not your host machine
-- for Docker Desktop on Windows, `host.docker.internal` is the correct hostname to reach the host PostgreSQL instance
-- the Compose file also adds `host.docker.internal:host-gateway` as an extra host entry to improve compatibility
-- if your local PostgreSQL uses different credentials or database names, override `APP_DATABASE_URL` before running Compose
+```bash
+alembic revision --autogenerate -m "describe change"
+```
 
-Example override in a local `.env` file:
+## 5. Compose Behavior
+
+Compose now assumes PostgreSQL is already running on the host machine.
+
+Application containers use:
 
 ```env
 APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews
 ```
 
-## 8. How Schema Initialization Works Today
-
-Current behavior is defined in [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py):
-
-- `create_engine_and_factory(...)` builds the SQLAlchemy engine
-- `init_database(...)` calls `Base.metadata.create_all(bind=engine)`
-
-This means:
-
-- table creation is automatic on startup
-- there is currently no separate SQL file for table DDL
-- the only required manual SQL is database and user creation
-
-## 9. Recommended Startup Order With PostgreSQL
-
-1. start PostgreSQL on the host machine
-2. create the database user and database
-3. make sure the host PostgreSQL listens on `localhost:5432`
-4. configure `APP_DATABASE_URL`
-5. start Redis
-6. start API
-7. start Celery worker
-8. start Celery beat
-9. start frontend
-
-## 10. Verification Steps
-
-After switching to PostgreSQL, verify with:
-
-1. check backend health:
+Recommended sequence:
 
 ```bash
-curl http://localhost:8000/healthz
+docker compose run --rm migrate
+docker compose up api worker beat web redis
 ```
 
-2. trigger one ingest run:
+Important notes:
 
-```bash
-curl -X POST http://localhost:8000/ingest/run   -H "Content-Type: application/json"   -d '{"source_slugs":["github-trending","openai-blog"]}'
-```
+- `migrate` runs Alembic against the host PostgreSQL instance
+- `api`, `worker`, and `beat` use `APP_DATABASE_BOOTSTRAP_MODE=skip`
+- Compose no longer declares a PostgreSQL service
 
-3. confirm tables were created in PostgreSQL:
+## 6. What Tables Exist After Migration
 
+The initial migration creates at least these tables:
+
+- `users`
+- `audit_logs`
 - `sources`
 - `ingest_runs`
 - `raw_items`
@@ -198,19 +128,16 @@ curl -X POST http://localhost:8000/ingest/run   -H "Content-Type: application/js
 - `post_variants`
 - `publish_jobs`
 
-## 11. Current Caveats
+## 7. Verification
 
-- the app still uses `Base.metadata.create_all(...)` instead of migrations
-- existing SQLite data is not migrated automatically
-- there is no Alembic migration layer yet
-- the host PostgreSQL instance must already be running before Compose starts
-- switching an existing local environment from SQLite to PostgreSQL does not migrate old data automatically
+After running migrations, verify with:
 
-## 12. Recommended Next Step
+1. `alembic current`
+2. `curl http://localhost:8000/healthz`
+3. `python -m pytest`
 
-Once local PostgreSQL is confirmed working, the next engineering step should be:
+If the API starts but PostgreSQL has no tables, check these first:
 
-1. introduce Alembic migrations
-2. make PostgreSQL the primary production backend path formally
-3. add health checks and readiness gates to Compose services
-4. add backup / restore guidance for local and staging environments
+- `APP_DATABASE_BOOTSTRAP_MODE` is not accidentally set to `skip` without running Alembic
+- `APP_DATABASE_URL` points to the intended host database
+- the local Python or container environment has `psycopg` available

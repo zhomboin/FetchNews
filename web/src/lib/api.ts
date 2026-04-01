@@ -1,5 +1,28 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+let accessTokenResolver: (() => string | null) | null = null;
+
+type ApiAuthConfig = {
+  auth_enabled: boolean;
+};
+
+type ApiAuthUser = {
+  id: number;
+  username: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+};
+
+type ApiAuthToken = {
+  access_token: string;
+  token_type: "bearer";
+  expires_at: string;
+  user: ApiAuthUser;
+};
+
 type ApiSourceSpec = {
   slug: string;
   label: string;
@@ -132,6 +155,16 @@ type ApiFailureGroup = {
   suggestion: string;
 };
 
+type ApiAlertRecord = {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  summary: string;
+  target: string | null;
+  suggestion: string;
+  count: number;
+};
+
 type ApiPublishPlatformMetric = {
   platform: string;
   total_jobs: number;
@@ -194,6 +227,7 @@ type ApiOpsSummary = {
   engagement_opens_total: number;
   engagement_clicks_total: number;
   engagement_interactions_total: number;
+  alerts: ApiAlertRecord[];
   recent_failure_groups: ApiFailureGroup[];
   publish_platform_metrics: ApiPublishPlatformMetric[];
   section_review_metrics: ApiSectionReviewMetric[];
@@ -206,6 +240,36 @@ type ApiOpsSummary = {
 export type HealthResponse = {
   status: string;
   service: string;
+};
+
+/**
+ * Auth feature flag returned by the backend.
+ */
+export type AuthConfigRecord = {
+  authEnabled: boolean;
+};
+
+/**
+ * Authenticated operator record used in the SPA shell.
+ */
+export type AuthUserRecord = {
+  id: number;
+  username: string;
+  displayName: string;
+  role: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+};
+
+/**
+ * Login response returned by the backend.
+ */
+export type AuthTokenRecord = {
+  accessToken: string;
+  tokenType: "bearer";
+  expiresAt: string;
+  user: AuthUserRecord;
 };
 
 /**
@@ -426,6 +490,19 @@ export type FailureGroupRecord = {
 };
 
 /**
+ * Alert entry surfaced in the operations dashboard.
+ */
+export type AlertRecord = {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  summary: string;
+  target: string | null;
+  suggestion: string;
+  count: number;
+};
+
+/**
  * Per-platform publishing metrics used by the ops dashboard.
  */
 export type PublishPlatformMetricRecord = {
@@ -499,6 +576,7 @@ export type OpsSummaryRecord = {
   engagementOpensTotal: number;
   engagementClicksTotal: number;
   engagementInteractionsTotal: number;
+  alerts: AlertRecord[];
   recentFailureGroups: FailureGroupRecord[];
   publishPlatformMetrics: PublishPlatformMetricRecord[];
   sectionReviewMetrics: SectionReviewMetricRecord[];
@@ -509,13 +587,13 @@ export type OpsSummaryRecord = {
  * Canonical section labels used across stories and digests.
  */
 export const SECTION_LABELS: Record<string, string> = {
-  model_release: "模型发布",
-  open_source: "开源项目",
-  research: "论文精选",
-  agents: "Agent 工作流",
-  infrastructure: "基础设施",
-  product_updates: "产品动态",
-  community: "社区热议",
+  model_release: "????",
+  open_source: "????",
+  research: "????",
+  agents: "Agent ???",
+  infrastructure: "????",
+  product_updates: "????",
+  community: "????",
 };
 
 /**
@@ -525,13 +603,57 @@ export function formatSectionLabel(sectionSlug: string): string {
   return SECTION_LABELS[sectionSlug] ?? sectionSlug.replace(/_/g, " ");
 }
 
+/**
+ * Configures a resolver that provides the latest access token for API calls.
+ */
+export function configureAccessTokenResolver(resolver: (() => string | null) | null): void {
+  accessTokenResolver = resolver;
+}
+
+/**
+ * Builds a request init object with the current bearer token when available.
+ */
+export function buildAuthorizedRequestInit(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers ?? undefined);
+  const token = accessTokenResolver?.();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return { ...init, headers };
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init);
+  const response = await fetch(`${API_BASE}${path}`, buildAuthorizedRequestInit(init));
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+function mapAuthConfig(apiConfig: ApiAuthConfig): AuthConfigRecord {
+  return { authEnabled: apiConfig.auth_enabled };
+}
+
+function mapAuthUser(apiUser: ApiAuthUser): AuthUserRecord {
+  return {
+    id: apiUser.id,
+    username: apiUser.username,
+    displayName: apiUser.display_name,
+    role: apiUser.role,
+    isActive: apiUser.is_active,
+    lastLoginAt: apiUser.last_login_at,
+    createdAt: apiUser.created_at,
+  };
+}
+
+function mapAuthToken(apiToken: ApiAuthToken): AuthTokenRecord {
+  return {
+    accessToken: apiToken.access_token,
+    tokenType: apiToken.token_type,
+    expiresAt: apiToken.expires_at,
+    user: mapAuthUser(apiToken.user),
+  };
 }
 
 function mapSourceSpec(apiSource: ApiSourceSpec): SourceSpec {
@@ -684,6 +806,18 @@ function mapFailureGroup(apiGroup: ApiFailureGroup): FailureGroupRecord {
   };
 }
 
+function mapAlertRecord(apiAlert: ApiAlertRecord): AlertRecord {
+  return {
+    severity: apiAlert.severity,
+    category: apiAlert.category,
+    title: apiAlert.title,
+    summary: apiAlert.summary,
+    target: apiAlert.target,
+    suggestion: apiAlert.suggestion,
+    count: apiAlert.count,
+  };
+}
+
 function mapPublishPlatformMetric(apiMetric: ApiPublishPlatformMetric): PublishPlatformMetricRecord {
   return {
     platform: apiMetric.platform,
@@ -753,6 +887,7 @@ function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
     engagementOpensTotal: apiSummary.engagement_opens_total,
     engagementClicksTotal: apiSummary.engagement_clicks_total,
     engagementInteractionsTotal: apiSummary.engagement_interactions_total,
+    alerts: apiSummary.alerts.map(mapAlertRecord),
     recentFailureGroups: apiSummary.recent_failure_groups.map(mapFailureGroup),
     publishPlatformMetrics: apiSummary.publish_platform_metrics.map(mapPublishPlatformMetric),
     sectionReviewMetrics: apiSummary.section_review_metrics.map(mapSectionReviewMetric),
@@ -765,6 +900,36 @@ function mapOpsSummary(apiSummary: ApiOpsSummary): OpsSummaryRecord {
  */
 export function fetchHealth(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/healthz");
+}
+
+/**
+ * Returns whether backend auth is enabled.
+ */
+export async function fetchAuthConfig(): Promise<AuthConfigRecord> {
+  const apiConfig = await requestJson<ApiAuthConfig>("/auth/config");
+  return mapAuthConfig(apiConfig);
+}
+
+/**
+ * Creates a login session for the protected console.
+ */
+export async function login(payload: { username: string; password: string }): Promise<AuthTokenRecord> {
+  const apiToken = await requestJson<ApiAuthToken>("/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return mapAuthToken(apiToken);
+}
+
+/**
+ * Resolves the current authenticated user from the backend.
+ */
+export async function fetchCurrentUser(): Promise<AuthUserRecord> {
+  const apiUser = await requestJson<ApiAuthUser>("/auth/me");
+  return mapAuthUser(apiUser);
 }
 
 /**
@@ -802,7 +967,7 @@ export async function triggerIngestRun(payload: IngestRunRequest): Promise<Inges
 }
 
 /**
- * Loads clustered stories produced by the Phase 03 pipeline.
+ * Loads clustered stories produced by the pipeline.
  */
 export async function fetchStories(): Promise<StoryRecord[]> {
   const apiStories = await requestJson<ApiStoryRecord[]>("/stories");
