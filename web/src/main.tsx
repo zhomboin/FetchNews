@@ -5,6 +5,7 @@ import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
 import { LoginPage } from "./features/auth/login-page";
 import { ArticlesPage } from "./features/articles/articles-page";
+import { ArticleHistoryDetailPage } from "./features/articles/article-history-detail-page";
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { OpsDashboardPage } from "./features/ops/ops-dashboard-page";
 import { OpsDetailPage } from "./features/ops/ops-detail-page";
@@ -72,6 +73,7 @@ function Shell({ health, onLogout }: ShellProps): React.JSX.Element {
           <Route path="/ingestion" element={<IngestionRunsPage health={health} />} />
           <Route path="/stories" element={<StoriesPage health={health} />} />
           <Route path="/articles" element={<ArticlesPage health={health} />} />
+          <Route path="/articles/history" element={<ArticleHistoryDetailPage />} />
           <Route path="/publishing" element={<OpsDashboardPage health={health} mode="publishing" />} />
           <Route path="/ops/details" element={<OpsDetailPage health={health} />} />
           <Route path="*" element={<OpsDashboardPage health={health} mode="overview" />} />
@@ -154,7 +156,7 @@ function App(): React.JSX.Element {
       const session = await login({ username, password });
       setSession(session.accessToken, session.user);
     } catch {
-      setLoginError("????????????????????");
+      setLoginError("登录失败，请检查用户名和密码。");
     } finally {
       setLoginPending(false);
     }
@@ -171,8 +173,8 @@ function App(): React.JSX.Element {
       <div className="login-shell">
         <section className="login-panel login-loading-panel">
           <p className="eyebrow">Protected Console</p>
-          <h1>????????</h1>
-          <p className="lede">?????????????????????</p>
+          <h1>正在同步登录状态</h1>
+          <p className="lede">系统正在确认鉴权配置和当前会话，请稍候。</p>
         </section>
       </div>
     );

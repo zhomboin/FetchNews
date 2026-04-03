@@ -78,6 +78,7 @@ class NormalizedItem(BaseModel):
 
 
 class StoryCandidate(BaseModel):
+    payload_story_id: int | None = None
     story_key: str
     cluster_title: str
     summary: str
@@ -175,6 +176,19 @@ class GenerateDailyArticleRequest(BaseModel):
     target_date: date
     story_ids: list[int] | None = None
     generation_note: str | None = None
+    template_id: int | None = None
+
+
+class GenerateArticleRequest(GenerateDailyArticleRequest):
+    period_type: Literal['daily', 'weekly', 'monthly'] = 'daily'
+
+
+class ArticleSectionPlanResponse(BaseModel):
+    section_key: str
+    section_label: str
+    target_ratio: float | None = None
+    story_count: int = 0
+    story_ids: list[int] = Field(default_factory=list)
 
 
 class ArticleDraftResponse(ArticleDraftPayload):
@@ -182,6 +196,12 @@ class ArticleDraftResponse(ArticleDraftPayload):
     status: str
     story_ids: list[int] = Field(default_factory=list)
     generation_note: str | None = None
+    template_id: int | None = None
+    template_name: str | None = None
+    active_revision_id: int | None = None
+    block_count: int = 0
+    section_plan: list[ArticleSectionPlanResponse] = Field(default_factory=list)
+    blocks: list[ArticleBlockResponse] = Field(default_factory=list)
     story_count: int
     variant_count: int
     created_at: datetime
@@ -194,6 +214,74 @@ class PostVariantResponse(BaseModel):
     platform: str
     content: str
     updated_at: datetime
+
+
+class ArticleBlockResponse(BaseModel):
+    id: int
+    article_id: int
+    revision_id: int
+    block_key: str
+    block_type: str
+    section_key: str | None = None
+    platform_scope: str | None = None
+    story_id: int | None = None
+    title: str | None = None
+    content: str
+    sort_order: int
+    is_locked: bool
+    is_manual: bool
+    payload: dict = Field(default_factory=dict)
+    updated_at: datetime
+
+
+class ArticleRevisionResponse(BaseModel):
+    id: int
+    article_id: int
+    version_number: int
+    change_type: str
+    change_note: str | None = None
+    template_id: int | None = None
+    snapshot: dict = Field(default_factory=dict)
+    created_by_user_id: int | None = None
+    created_at: datetime
+
+
+class DigestTemplateResponse(BaseModel):
+    id: int
+    name: str
+    period_type: str
+    description: str | None = None
+    section_quotas: dict = Field(default_factory=dict)
+    section_order: list[str] = Field(default_factory=list)
+    default_platform_templates: dict = Field(default_factory=dict)
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ArticleBlockUpdateRequest(BaseModel):
+    content: str | None = None
+    title: str | None = None
+    is_locked: bool | None = None
+    sort_order: int | None = None
+
+
+class ArticleRebuildRequest(BaseModel):
+    mode: Literal['mixed', 'force_full'] = 'mixed'
+    template_id: int | None = None
+    section_keys: list[str] | None = None
+
+
+class EditorialActionResponse(BaseModel):
+    id: int
+    article_id: int
+    revision_id: int | None = None
+    actor_user_id: int | None = None
+    action_type: str
+    target_type: str
+    target_id: str | None = None
+    detail: dict = Field(default_factory=dict)
+    created_at: datetime
 
 
 class IngestRunRequest(BaseModel):

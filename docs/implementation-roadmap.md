@@ -140,3 +140,12 @@
 完整实现快照见：
 
 - [docs/current-status.md](/D:/Code/Project/FetchNews/docs/current-status.md)
+## 编辑工作台下一步
+
+围绕三栏编辑工作台，后续建议按以下顺序继续：
+
+1. 补 revision diff 的块级对比视图。
+2. 补平台模板切换与模板说明面板。
+3. 补块级排序和栏目块局部重建。
+4. 补独立的编辑历史 / 审计明细页。
+5. 再把这些能力与真实平台发布器联动。

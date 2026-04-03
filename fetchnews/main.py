@@ -29,10 +29,14 @@ from fetchnews.pipeline.article_service import (
     generate_and_persist_daily_digest,
     generate_and_persist_monthly_digest,
     generate_and_persist_weekly_digest,
+    list_article_blocks,
+    list_article_revisions,
     list_article_variants,
     list_articles,
     resolve_article_sections_for_story_ids,
 )
+from fetchnews.pipeline.editorial_revisions import rebuild_article_draft, list_editorial_actions, restore_article_revision, update_article_block
+from fetchnews.pipeline.editorial_templates import ensure_default_digest_templates, list_digest_templates
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.publishing.service import (
     build_default_publisher_registry,
@@ -46,10 +50,17 @@ from fetchnews.publishing.service import (
 )
 from fetchnews.schemas import (
     ArticleDraftResponse,
+    ArticleBlockResponse,
+    ArticleBlockUpdateRequest,
+    ArticleRebuildRequest,
+    ArticleRevisionResponse,
     AuthConfigResponse,
+    DigestTemplateResponse,
+    EditorialActionResponse,
     AuthLoginRequest,
     AuthTokenResponse,
     AuthUserResponse,
+    GenerateArticleRequest,
     GenerateDailyArticleRequest,
     IngestRunRequest,
     IngestRunResponse,
@@ -106,6 +117,7 @@ class AppState:
         }
         with session_scope(self.session_factory) as session:
             ensure_bootstrap_admin(session, settings)
+            ensure_default_digest_templates(session)
             session.commit()
 
 
@@ -241,6 +253,13 @@ def create_app(
     ) -> list[dict[str, object]]:
         specs = annotate_source_specs(db, get_source_specs())
         return [spec.model_dump() for spec in specs]
+
+    @app.get("/templates/digests", response_model=list[DigestTemplateResponse])
+    def get_digest_templates(
+        db: Session = Depends(get_db),
+        _current_user: User | None = Depends(viewer_access),
+    ) -> list[DigestTemplateResponse]:
+        return list_digest_templates(db)
 
     @app.post("/ingest/run", response_model=IngestRunResponse)
     def run_ingestion(
@@ -382,6 +401,20 @@ def create_app(
         db.commit()
         return {"id": story.id, "status": story.status}
 
+    @app.post("/articles/generate", response_model=ArticleDraftResponse)
+    def generate_article(
+        payload: GenerateArticleRequest,
+        db: Session = Depends(get_db),
+        current_user: User | None = Depends(editor_access),
+    ) -> ArticleDraftResponse:
+        generator_map: dict[str, Callable[..., ArticleDraftResponse]] = {
+            'daily': generate_and_persist_daily_digest,
+            'weekly': generate_and_persist_weekly_digest,
+            'monthly': generate_and_persist_monthly_digest,
+        }
+        generator = generator_map[payload.period_type]
+        return _generate_article_digest(db, payload, generator, current_user)
+
     @app.post("/articles/generate/daily", response_model=ArticleDraftResponse)
     def generate_daily_article(
         payload: GenerateDailyArticleRequest,
@@ -425,6 +458,122 @@ def create_app(
         variant_count = len(list_article_variants(db, article.id))
         sections = resolve_article_sections_for_story_ids(db, article.story_ids)
         return article_to_response(article, variant_count, sections=sections)
+
+    @app.get("/articles/{article_id}/blocks", response_model=list[ArticleBlockResponse])
+    def get_article_blocks(
+        article_id: int,
+        db: Session = Depends(get_db),
+        _current_user: User | None = Depends(viewer_access),
+    ) -> list[ArticleBlockResponse]:
+        article = db.get(ArticleDraft, article_id)
+        if article is None:
+            raise HTTPException(status_code=404, detail="Article not found")
+        return list_article_blocks(db, article.id)
+
+    @app.get("/articles/{article_id}/revisions", response_model=list[ArticleRevisionResponse])
+    def get_article_revisions(
+        article_id: int,
+        db: Session = Depends(get_db),
+        _current_user: User | None = Depends(viewer_access),
+    ) -> list[ArticleRevisionResponse]:
+        article = db.get(ArticleDraft, article_id)
+        if article is None:
+            raise HTTPException(status_code=404, detail="Article not found")
+        return list_article_revisions(db, article.id)
+
+    @app.get("/articles/{article_id}/editorial-actions", response_model=list[EditorialActionResponse])
+    def get_editorial_actions(
+        article_id: int,
+        db: Session = Depends(get_db),
+        _current_user: User | None = Depends(viewer_access),
+    ) -> list[EditorialActionResponse]:
+        article = db.get(ArticleDraft, article_id)
+        if article is None:
+            raise HTTPException(status_code=404, detail="Article not found")
+        return list_editorial_actions(db, article.id)
+
+    @app.post("/articles/{article_id}/revisions/{revision_id}/restore", response_model=ArticleDraftResponse)
+    def restore_revision(
+        article_id: int,
+        revision_id: int,
+        db: Session = Depends(get_db),
+        current_user: User | None = Depends(editor_access),
+    ) -> ArticleDraftResponse:
+        try:
+            result = restore_article_revision(
+                db,
+                article_id=article_id,
+                revision_id=revision_id,
+                actor=current_user,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record_audit_log(
+            db,
+            actor=current_user,
+            action='article.revision.restore',
+            resource_type='article_revision',
+            resource_id=revision_id,
+            detail={'article_id': article_id},
+        )
+        db.commit()
+        return result
+
+    @app.patch("/articles/{article_id}/blocks/{block_id}", response_model=ArticleBlockResponse)
+    def patch_article_block(
+        article_id: int,
+        block_id: int,
+        payload: ArticleBlockUpdateRequest,
+        db: Session = Depends(get_db),
+        current_user: User | None = Depends(editor_access),
+    ) -> ArticleBlockResponse:
+        try:
+            result = update_article_block(
+                db,
+                article_id=article_id,
+                block_id=block_id,
+                payload=payload,
+                actor=current_user,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record_audit_log(
+            db,
+            actor=current_user,
+            action='article.block.update',
+            resource_type='article_block',
+            resource_id=block_id,
+            detail=payload.model_dump(exclude_none=True),
+        )
+        db.commit()
+        return result
+
+    @app.post("/articles/{article_id}/rebuild", response_model=ArticleDraftResponse)
+    def rebuild_article(
+        article_id: int,
+        payload: ArticleRebuildRequest,
+        db: Session = Depends(get_db),
+        current_user: User | None = Depends(editor_access),
+    ) -> ArticleDraftResponse:
+        try:
+            result = rebuild_article_draft(
+                db,
+                article_id=article_id,
+                payload=payload,
+                actor=current_user,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record_audit_log(
+            db,
+            actor=current_user,
+            action='article.rebuild',
+            resource_type='article',
+            resource_id=article_id,
+            detail=payload.model_dump(exclude_none=True),
+        )
+        db.commit()
+        return result
 
     @app.get("/articles/{article_id}/variants", response_model=list[PostVariantResponse])
     def get_article_variants(
@@ -597,6 +746,7 @@ def _generate_article_digest(
             target_date=payload.target_date,
             story_ids=payload.story_ids,
             generation_note=payload.generation_note,
+            template_id=getattr(payload, 'template_id', None),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
