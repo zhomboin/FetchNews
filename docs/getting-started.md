@@ -52,6 +52,29 @@ APP_BOOTSTRAP_ADMIN_PASSWORD=admin-secret
 VITE_API_BASE=http://localhost:8000
 ```
 
+## Required SQL Before Running Migrations
+
+If your local PostgreSQL instance has not been prepared yet, execute this SQL first in `psql`:
+
+```sql
+CREATE USER fetchnews WITH PASSWORD 'fetchnews';
+CREATE DATABASE fetchnews OWNER fetchnews;
+GRANT ALL PRIVILEGES ON DATABASE fetchnews TO fetchnews;
+\connect fetchnews
+GRANT ALL ON SCHEMA public TO fetchnews;
+ALTER SCHEMA public OWNER TO fetchnews;
+```
+
+If the role and database already exist, update them instead:
+
+```sql
+ALTER USER fetchnews WITH PASSWORD 'fetchnews';
+ALTER DATABASE fetchnews OWNER TO fetchnews;
+\connect fetchnews
+GRANT ALL ON SCHEMA public TO fetchnews;
+ALTER SCHEMA public OWNER TO fetchnews;
+```
+
 ## Manual Startup Without Compose
 
 1. Install backend dependencies.
@@ -68,31 +91,33 @@ npm install
 cd ..
 ```
 
-3. Run migrations.
+3. Run the required PostgreSQL bootstrap SQL shown above if this database has not been prepared yet.
+
+4. Run migrations.
 
 ```bash
 alembic upgrade head
 ```
 
-4. Start the backend API.
+5. Start the backend API.
 
 ```bash
 uvicorn fetchnews.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-5. Start the worker.
+6. Start the worker.
 
 ```bash
 celery -A fetchnews.tasks.worker.celery_app worker --loglevel=info
 ```
 
-6. Start beat.
+7. Start beat.
 
 ```bash
 celery -A fetchnews.tasks.worker.celery_app beat --loglevel=info
 ```
 
-7. Start the frontend.
+8. Start the frontend.
 
 ```bash
 cd web

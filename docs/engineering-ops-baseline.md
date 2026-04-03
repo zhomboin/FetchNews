@@ -19,6 +19,12 @@ Key files:
 - [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/alembic/versions/20260401_0001_initial_schema.py)
 - [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py)
 
+SQL boundary for this round:
+
+- manual SQL is limited to creating the PostgreSQL role, database, and schema ownership
+- application tables are created through Alembic, not pasted manually into `psql`
+- see [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md) for the exact SQL block
+
 ### PostgreSQL formalization
 
 Implemented:
