@@ -1,138 +1,142 @@
-# FetchNews Implementation Roadmap
+# FetchNews 实施路线
 
-## Phase Status Snapshot
+## 阶段状态快照
 
-As of `2026-04-01`, the implementation status is:
+截至 `2026-04-03`，当前阶段状态如下：
 
-| Phase | Name | Status | Notes |
+| 阶段 | 名称 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| Phase 00 | Docs and Decisions | Completed | Planning, style, and collaboration baseline are in place |
-| Phase 01 | Foundation | Completed | FastAPI, React SPA, Compose, and test baseline are in place |
-| Phase 02 | Ingestion | Baseline completed | Source catalog, ingest runs, and raw item flow work |
-| Phase 03 | Normalize and Cluster | Baseline completed | `normalized_items`, `stories`, rebuild, and review work |
-| Phase 04 | Content Generation | Baseline completed | Daily / weekly / monthly drafts and variants work |
-| Phase 05 | Review and Publishing | Baseline completed | Review flow, publish orchestration, retry, and feedback work |
-| Phase 06 | Optimization and Operations | In progress | Governance, engagement feedback, and ops diagnostics are expanding |
+| 阶段 00 | 文档与决策 | 已完成 | 规划、风格与协作基线已建立 |
+| 阶段 01 | 基础骨架 | 已完成 | FastAPI、React SPA、Compose 与测试基线已就位 |
+| 阶段 02 | 来源采集 | 基础完成 | 来源目录、采集批次与原始事件流已可用 |
+| 阶段 03 | 标准化与聚类 | 基础完成 | `normalized_items`、`stories`、重建与审核已可用 |
+| 阶段 04 | 内容生成 | 基础完成 | 日报 / 周报 / 月报草稿与平台变体已可用 |
+| 阶段 05 | 审核与发布 | 基础完成 | 审核、发布编排、重试与反馈回写已可用 |
+| 阶段 06 | 优化与运维 | 进行中 | 治理、互动反馈、编辑工作台与运维能力持续增强 |
 
-## Phase 00: Docs and Decisions
+## 阶段 00：文档与决策
 
-Completed:
+已完成：
 
-- architecture docs
-- frontend style baseline
-- TypeScript style guide
-- project plan docs
-- getting-started guide
+- 架构文档
+- 前端风格基线
+- TypeScript 规范
+- 项目计划文档
+- 启动指南
 
-## Phase 01: Foundation
+## 阶段 01：基础骨架
 
-Completed:
+已完成：
 
-- backend package skeleton
-- frontend SPA skeleton
-- Docker Compose setup
-- basic APIs
-- verification baseline
+- 后端包结构
+- 前端 SPA 骨架
+- Docker Compose 基线
+- 基础 API
+- 验证基线
 
-## Phase 02: Ingestion
+## 阶段 02：来源采集
 
-Baseline completed:
+基础已完成：
 
-- source catalog
-- ingest runs
-- raw item persistence
-- manual ingest trigger
-- ingestion monitoring page
-- default `Celery beat` schedule
+- 来源目录
+- 采集批次
+- 原始事件持久化
+- 手动采集触发
+- 采集监控页面
+- 默认 `Celery beat` 调度
 
-Still to improve:
+仍需增强：
 
-- more real source connectors
-- stronger credential and rate-limit handling
-- better source stability and recovery
+- 更多真实来源连接器
+- 更强的凭证与限流处理
+- 更好的采集稳定性与恢复能力
 
-## Phase 03: Normalize and Cluster
+## 阶段 03：标准化与聚类
 
-Baseline completed:
+基础已完成：
 
-- normalized item storage
-- URL normalization
-- story clustering
-- baseline scoring
-- risk flags
-- story approval flow
+- 标准化事件存储
+- URL 归一化
+- story 聚类
+- 基础评分
+- 风险标记
+- story 审核流程
 
-Still to improve:
+仍需增强：
 
-- embedding-based similarity and recall
-- better clustering explainability
-- deeper source-risk explanations
+- embedding 相似度与召回
+- 更强的聚类可解释性
+- 更细的来源风险解释
 
-## Phase 04: Content Generation
+## 阶段 04：内容生成
 
-Baseline completed:
+基础已完成：
 
-- daily / weekly / monthly digests
-- generation for selected story scopes
-- multi-platform variants
-- section-based output
-- platform strategy-driven copy templates
+- 日报 / 周报 / 月报草稿
+- 指定 story 范围生成
+- 多平台短帖变体
+- 基于栏目输出正文
+- 基于平台策略生成文案模板
 
-Still to improve:
+仍需增强：
 
-- real LLM provider integration
-- stronger citation traceability
-- richer title, intro, tag, and cover generation
+- 真实 LLM provider 集成
+- 更完整的引用链路
+- 更丰富的标题、导语、标签与封面建议
+- 模板化栏目配额与编辑工作台联动
 
-## Phase 05: Review and Publishing
+## 阶段 05：审核与发布
 
-Baseline completed:
+基础已完成：
 
-- story review
-- draft review
-- publish jobs
-- result writeback
-- retries
-- mock executor
-- dispatch / poll workflow
-- feedback recording
+- story 审核
+- 草稿审核
+- 发布任务
+- 结果回写
+- 重试
+- mock 执行器
+- dispatch / poll 工作流
+- 效果记录
 
-Still to improve:
+仍需增强：
 
-- real platform publishers
-- richer edit history and audit support
-- webhook and callback style sync
+- 真实平台发布器
+- 更完整的编辑历史与审计支持
+- webhook / callback 风格的外部状态同步
 
-## Phase 06: Optimization and Operations
+## 阶段 06：优化与运维
 
-Already implemented:
+已实现：
 
-- ops dashboard
-- failure grouping
-- drill-down views
-- source governance feedback
-- section momentum feedback
-- platform engagement feedback
-- weekly / monthly section mix
-- weekly / monthly variants that reflect both platform strategy and section mix
+- ops 仪表盘
+- 失败分组
+- drill-down 详情页
+- 来源治理反馈
+- 栏目势能反馈
+- 平台互动反馈
+- 周报 / 月报栏目混排
+- 按互动表现调整平台文案策略
+- 周报 / 月报按栏目和平台联合优化变体
 
-Next major goals:
+下一批重点：
 
-1. real external connectors and publishers
-2. LLM and embedding integration
-3. production database migration and deployment setup
-4. auth, permissions, alerting, and audit hardening
+1. 真实外部连接器与发布器
+2. LLM 与 embedding 集成
+3. 更完整的编辑工作台
+4. 更完善的数据库迁移与生产部署方案
+5. 登录、权限、告警与审计进一步补齐
 
-## Recommended Execution Order From Here
+## 当前推荐执行顺序
 
-1. real `telegram / x / wechat` publishers
-2. stronger `arXiv / RSS / community` ingestion connectors
+1. 真实 `telegram / x / wechat` 发布器
+2. 更稳健的真实采集连接器
 3. `LLM provider + pgvector`
-4. `Alembic + PostgreSQL + production deployment`
-5. `auth / permissions / alerts / audit`
+4. 编辑工作台、编辑历史与人工干预
+5. 数据库迁移与生产部署增强
+6. 权限、告警与审计进一步加固
 
-## Related Status Doc
+## 相关状态文档
 
-For the full implementation snapshot, see:
+完整实现快照见：
 
 - [docs/current-status.md](/D:/Code/Project/FetchNews/docs/current-status.md)

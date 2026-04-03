@@ -2,131 +2,150 @@
 
 ## 1. 目标与范围
 
-`FetchNews` 的 V1 目标不是做一个全自动媒体矩阵，而是做一条稳定、可审阅、可重试的 AI 资讯生产线。
+`FetchNews` 的 V1 目标不是做一个全自动媒体矩阵，而是构建一条稳定、可审核、可重试的 AI 资讯生产线。
 
 V1 交付重点：
 
 - 定时抓取高价值 AI 来源
 - 原始事件入库
-- 标准化、去重、聚类与打分
-- 生成中文日报长文和多平台短帖
-- 人工审核后进入发布队列
+- 标准化、去重、聚类与评分
+- 生成中文日报、周报、月报与多平台短帖
+- 经过人工审核后再进入发布链路
 
 V1 暂不追求：
 
-- 公开内容门户
-- 多角色权限系统
-- 复杂外部用户前台
+- 面向外部用户的公开内容门户
+- 复杂的多组织权限系统
+- 高度自动化的无人值守媒体矩阵
 
 ## 2. 整体技术架构
 
-V1 采用“模块化单体后端 + React SPA 前端”的结构：
+当前采用“模块化单体后端 + React SPA 前端”的架构：
 
-- 后端：`FastAPI` 提供 REST API、工作流编排入口和平台集成
+- 后端：`FastAPI` 提供 REST API、任务编排入口和平台集成
 - 前端：`React SPA` 提供内部审核与运营控制台
 - 异步任务：`Celery + Redis`
 - 数据库：`PostgreSQL`
 
 这样设计的原因：
 
-- 审核台是内部系统，交互复杂，更适合 SPA
-- 当前核心复杂度在采集、处理、生成与发布，而不是 SEO
-- 保持单仓模块化，避免过早拆成微服务
+- 当前复杂度集中在采集、处理、生成、审核和发布流程，而不是 SEO
+- 审核台是典型内部后台，更适合 SPA
+- 单仓模块化更利于快速迭代，避免过早拆成微服务
 
-## 3. 分层架构
+## 3. 分层结构
 
-### 3.1 Source Ingestion
+### 3.1 来源采集层
 
 职责：
 
 - 定时或手动触发来源抓取
-- 支持 API、RSS、HTML 抓取和有限的动态页面抓取
-- 将结果写入 `raw_items`
+- 支持 API、RSS、HTML 抓取以及有限的动态页面抓取
+- 统一写入 `raw_items`
 
 输入：
 
-- 来源配置
-- 凭证和白名单
+- 来源目录配置
+- 白名单、凭证和启用状态
 
 输出：
 
 - 原始资讯事件
+- 采集批次记录
 
-### 3.2 Normalize & Enrich
+### 3.2 标准化与富化层
 
 职责：
 
-- 提取统一字段：标题、作者、URL、发布时间、正文、标签
-- 规范化 URL
-- 做语言识别、必要翻译和关键词提取
-- 补充基础热度和可信度信号
+- 提取统一字段：标题、作者、链接、发布时间、摘要、正文、标签
+- 规整 URL、清洗追踪参数、识别语言
+- 提取关键词与基础主题信号
 
 输出：
 
 - `normalized_items`
 
-### 3.3 Ranking & Clustering
+### 3.3 聚类与排序层
 
 职责：
 
-- 将同一事件的多来源内容聚合为一个 `story`
-- 根据来源可信度、时效、热度和相关度计算分数
-- 形成可审核的聚类结果
+- 将同一事件的多来源内容聚合成 `stories`
+- 结合来源可信度、时效、热度和治理反馈进行评分
+- 形成后续内容生成与审核的核心事件列表
 
-聚类优先规则：
+聚类信号包括：
 
-- 相同 canonical URL
-- 高相似标题
-- 白名单来源的交叉引用
+- canonical URL
+- 标题近似度
+- 来源之间的交叉引用
+- 后续可扩展的 embedding 相似度
 
-### 3.4 Content Generation
+### 3.4 内容生成层
 
 职责：
 
 - 为每个 `story` 生成中文摘要、亮点和风险说明
-- 基于当日 `stories` 生成长文草稿
-- 派生 X、微博、即刻、Telegram 等短帖版本
+- 基于已审核 `stories` 生成日报、周报、月报草稿
+- 为 `wechat`、`x`、`telegram` 生成平台变体
+- 将来源治理、栏目势能和平台反馈注入排序与文案策略
 
-要求：
-
-- 每个聚合事件都必须保留来源引用
-- 长文和短帖都必须能回溯到对应 `story`
-
-### 3.5 Review & Publishing
+### 3.5 审核与发布层
 
 职责：
 
-- 审核 `story` 和文章草稿
-- 编辑标题、排序、删除和驳回
-- 写入发布队列并记录发布结果
+- 审核 `story` 与文章草稿
+- 编辑标题、摘要、正文与平台变体
+- 创建发布任务、回写结果、失败重试与互动反馈
 
-### 3.6 Frontend Console
+### 3.6 运维与治理层
 
 职责：
 
-- 展示今日采集概览、审核队列、草稿、日志和发布队列
-- 提供审核、编辑、预览、发布和重试操作
-- 仅通过 REST API 与后端通信
+- 汇总采集、审核、发布与失败诊断指标
+- 输出来源治理反馈、栏目势能、平台表现
+- 形成运营建议与告警
 
-## 4. 核心数据流
+## 4. 前端架构
+
+前端采用 `React SPA + Vite + TypeScript`，核心定位是“内部审核控制台”，不是公开内容站。
+
+页面能力覆盖：
+
+- 运维首页
+- 采集监控
+- story 审核
+- 草稿中心
+- 发布队列与回写
+- drill-down 详情页
+
+当前视觉方向已经固定：
+
+- 风格名：`暖白金属极简`
+- 主题策略：`浅色优先`
+- 气质关键词：`企业秩序感`、`可信`、`克制`、`轻未来感`
+
+参考文档：
+
+- [docs/frontend-style.md](/D:/Code/Project/FetchNews/docs/frontend-style.md)
+
+## 5. 核心数据流
 
 ```text
-React SPA
-  -> FastAPI REST API
-  -> source config / manual actions
-  -> ingestion workers
+来源配置
+  -> 采集任务
   -> raw_items
   -> normalized_items
-  -> clustered stories
+  -> stories
   -> article_drafts + post_variants
-  -> review / approval
+  -> 人工审核
   -> publish_jobs
-  -> platform delivery
+  -> 平台执行与结果回写
+  -> 治理反馈与排序优化
 ```
 
-## 5. 核心数据模型
+## 6. 核心数据模型
 
-### sources
+### `sources`
 
 - 来源定义
 - 平台类型
@@ -134,46 +153,47 @@ React SPA
 - 白名单规则
 - 抓取配置
 
-### raw_items
+### `ingest_runs`
 
-- 原始抓取内容
-- 第三方平台元数据
-- 原文快照或正文
+- 每次采集批次记录
+- 采集成功数、失败数、错误详情
 
-### normalized_items
+### `raw_items`
 
-- 规范化标题
+- 原始抓取结果
+- 原始标题、正文、链接、作者、时间、负载
+
+### `normalized_items`
+
+- 标准化标题
 - canonical URL
-- 作者、语言、标签
-- 标准化摘要
+- 标签、关键词、语言、摘要
 
-### stories
+### `stories`
 
 - 聚类后的事件实体
-- 主标题、摘要、亮点、来源链路
-- 分数、风险标记、审核状态
+- 聚合来源链接
+- 亮点、风险标记、评分、审核状态
 
-### article_drafts
+### `article_drafts`
 
-- 每日文章草稿
-- 标题、导语、正文、摘要
-- 草稿状态
+- 日报、周报、月报草稿
+- 标题、摘要、正文、状态、生成说明
 
-### post_variants
+### `post_variants`
 
-- 不同平台的短内容版本
-- 平台、文案和状态
+- 多平台短帖版本
+- 平台、内容、更新时间
 
-### publish_jobs
+### `publish_jobs`
 
-- 发布计划
-- 平台、时间、状态、重试次数、外部 ID
+- 发布平台、时间、状态、重试次数、外部任务 ID、效果指标
 
-### audit_logs
+### `audit_logs`
 
-- 抓取、生成、审核和发布的审计记录
+- 登录、审核、生成、发布、回写等关键动作的审计记录
 
-## 6. 推荐目录结构
+## 7. 推荐目录结构
 
 ```text
 docs/
@@ -193,160 +213,70 @@ fetchnews/
   main.py
 web/
   src/
-    app/
     components/
     features/
     lib/
-  public/
-  package.json
 ```
 
-目录职责：
+职责边界：
 
-- `fetchnews/` 负责 API、任务、数据模型、抓取和内容处理
-- `web/` 负责内部审核控制台
-- `web/src/features/` 按业务域拆分，如 `stories`、`articles`、`publish-jobs`
+- `fetchnews/` 负责 API、模型、任务、采集和内容处理
+- `web/` 负责内部控制台
+- `web/src/features/` 按业务域拆分，例如 `stories`、`articles`、`ops`
 
-## 7. 前后端职责边界
+## 8. 前后端职责边界
 
 ### 后端职责
 
-- 抓取、标准化、聚类、内容生成和发布编排
-- 暴露 REST API
-- 统一权限、审计和幂等控制
+- 采集、标准化、聚类、生成、发布与运维汇总
+- 统一权限、审计、幂等与状态管理
+- 暴露 REST API，作为业务真相来源
 
 ### 前端职责
 
-- 审核与运营交互
-- 列表筛选、预览、表单提交、发布操作
-- 只消费 API，不内嵌业务真相
+- 审核、预览、筛选、编辑与发布操作
+- 展示指标、告警、日志与 drill-down 明细
+- 消费 API，不承载业务真相
 
-### 为什么不选 Next.js
+## 9. 核心 API 边界
 
-- 当前不是 SEO 驱动的公开内容站
-- 审核台更接近后台系统，SPA 更直接
-- 避免同时维护 React 服务端渲染逻辑和 Python 工作流系统
-
-## 8. 前端体验与视觉基线
-
-当前正式确认的后台视觉方向：
-
-- 风格名：`暖白金属极简`
-- 主题模式：`浅色优先`
-- 气质：`企业秩序感 + 轻未来感`
-
-页面应统一服务于以下后台场景：
-
-- 内容审核
-- 统计图表
-- 日报草稿预览
-- 系统日志与发布排程
-
-设计原则：
-
-- 先保证信息效率，再表达 AI 气质
-- AI 感通过细网格、轨迹线、金属高光和状态提示体现
-- 不使用赛博朋克霓虹、重玻璃拟态和夸张装饰
-- 图表、日志、审核卡片都应采用统一控制台语言
-
-参考与规范：
-
-- [docs/frontend-style.md](/D:/Code/Project/FetchNews/docs/frontend-style.md)
-- [docs/assets/fetchnews-warm-metal-preview.png](/D:/Code/Project/FetchNews/docs/assets/fetchnews-warm-metal-preview.png)
-
-## 9. API 边界
-
-保留以下核心接口：
+当前保留的关键接口：
 
 - `POST /ingest/run`
+- `GET /ingest/runs`
 - `GET /stories`
 - `POST /stories/{id}/approve`
 - `POST /articles/generate/daily`
+- `POST /articles/generate/weekly`
+- `POST /articles/generate/monthly`
+- `GET /articles`
 - `GET /articles/{id}`
+- `GET /articles/{id}/variants`
 - `POST /articles/{id}/publish`
 - `GET /publish-jobs`
-
-推荐补充的前端接口：
-
-- `GET /dashboard/summary`
-- `GET /articles/{id}/variants`
 - `POST /publish-jobs/{id}/retry`
+- `GET /ops/summary`
 
-## 10. 后端实现建议
+## 10. 部署建议
 
-### 应用层
+本地开发推荐：
 
-- `FastAPI` 仅提供 API
-- 用 Pydantic schema 明确请求和响应契约
-- 本地前后端通过 CORS 对接
+- 宿主机 PostgreSQL
+- `docker compose run --rm migrate`
+- `docker compose up api worker beat web redis`
 
-### 数据层
+V1 不急于上 Kubernetes，先保证本地与生产环境保持近似形态即可。
 
-- 使用 `SQLAlchemy 2.x`
-- 正式环境按 `PostgreSQL` 设计
-
-### 异步任务
-
-- 使用 `Celery + Redis`
-- 任务分为：抓取、处理、生成、发布
-
-### 内容生成层
-
-- 抽象 LLM provider 接口
-- 支持 fallback 模板生成
-- 输出必须附来源引用上下文
-
-## 11. 前端实现建议
-
-推荐技术栈：
-
-- `React 18`
-- `Vite`
-- `TypeScript`
-- `React Router`
-- `TanStack Query`
-- `Zustand`
-- `Tailwind CSS`
-
-页面范围：
-
-- 仪表盘
-- 审核队列
-- 日报草稿编辑与预览
-- 平台短帖预览
-- 发布队列与失败重试
-
-约束：
-
-- 不做公开门户
-- 不做服务端渲染
-- 所有页面默认按内部运营场景设计
-
-## 12. 部署建议
-
-开发环境使用 `Docker Compose`：
-
-- `api`
-- `worker`
-- `beat`
-- `web`
-- `postgres`
-- `redis`
-
-生产环境 V1 保持同构部署即可，不急于迁移 `Kubernetes`。
-
-## 13. 风控原则
+## 11. 风控原则
 
 - 白名单优先
-- 不以中文转载站为唯一来源
+- 一手来源优先于二手转载
 - 对“传闻”“未证实”“二次转载”单独打标
-- 发布失败必须幂等重试
+- 发布失败必须支持幂等重试
 - 所有文章段落都必须能回溯到 `story` 与来源链路
 
-## 14. 结论
+## 12. 文档约束
 
-当前正式选型：
-
-- 后端：`FastAPI + SQLAlchemy + PostgreSQL + Celery + Redis`
-- 前端：`React SPA + Vite + TypeScript`
-- 视觉基线：`暖白金属极简，浅色优先，企业秩序感 + 轻未来感`
+- 项目内所有自有文档统一使用中文撰写
+- 允许保留必要的英文技术名词，但必须处于中文语境中
+- 新增架构、计划、规范、状态、启动与设计文档时必须遵守该约束

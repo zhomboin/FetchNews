@@ -2,14 +2,14 @@
 
 ## 项目目标
 
-`FetchNews` 是一个面向中文 AI 从业者的资讯聚合、内容审核与多平台分发系统。目标是从 GitHub、论文源、官方博客、X 与社区平台定时抓取高价值 AI 信息，完成标准化、去重、聚类、摘要与长文/短帖生成，并在人工审核后分发到不同平台。
+`FetchNews` 是一个面向中文 AI 从业者的资讯聚合、内容审核与多平台分发系统。目标是从 GitHub、论文源、官方博客、X 与社区平台定时抓取高价值 AI 信息，完成标准化、去重、聚类、摘要与长文 / 短帖生成，并在人工审核后分发到不同平台。
 
-当前仓库处于早期实现阶段，已经具备：
+当前仓库已经具备：
 
-- 后端 Phase 01 骨架
-- React SPA 审核后台骨架
-- 架构、路线与阶段计划文档
-- 基础测试和本地编排
+- 后端与前端基础骨架
+- 来源采集、标准化、聚类、草稿生成与发布工作流
+- 登录、权限、审计、迁移与基础运维能力
+- 架构、路线、阶段计划与专项设计文档
 
 ## 当前推荐技术栈
 
@@ -100,6 +100,13 @@ web/
 
 - [docs/typescript-style.md](/D:/Code/Project/FetchNews/docs/typescript-style.md)
 
+## 文档语言约束
+
+- 项目内所有自有文档统一使用中文撰写
+- 允许保留必要的英文专有名词，但必须放在中文上下文中
+- 新增或修改 `README.md`、`AGENTS.md`、`AGENT.md`、`.impeccable.md`、`docs/**/*.md` 时必须遵守该约束
+- 第三方依赖自带文档、缓存目录与工具生成的外部说明不在此要求内
+
 ## 文件编码约定
 
 - 仓库内所有文本文件统一使用 `UTF-8`，无 `BOM`
@@ -136,6 +143,7 @@ npm.cmd run build
 - 实施路线：[docs/implementation-roadmap.md](/D:/Code/Project/FetchNews/docs/implementation-roadmap.md)
 - 计划目录：[docs/project-plan/README.md](/D:/Code/Project/FetchNews/docs/project-plan/README.md)
 - 总体计划：[docs/project-plan/00-master-plan.md](/D:/Code/Project/FetchNews/docs/project-plan/00-master-plan.md)
+- 编辑工作台设计：[docs/superpowers/specs/2026-04-03-editorial-workbench-design.md](/D:/Code/Project/FetchNews/docs/superpowers/specs/2026-04-03-editorial-workbench-design.md)
 
 ## 协作说明
 
@@ -143,3 +151,4 @@ npm.cmd run build
 - 实现前端页面前先读 [docs/frontend-style.md](/D:/Code/Project/FetchNews/docs/frontend-style.md)
 - 进入某个阶段前先读对应的 `docs/project-plan/phase-*.md`
 - 扩展来源前先更新 [docs/content-sources.md](/D:/Code/Project/FetchNews/docs/content-sources.md)
+- 进入编辑工作台相关实现前先读 [docs/superpowers/specs/2026-04-03-editorial-workbench-design.md](/D:/Code/Project/FetchNews/docs/superpowers/specs/2026-04-03-editorial-workbench-design.md)

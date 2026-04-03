@@ -1,37 +1,52 @@
-# Local PostgreSQL Setup
+# 本地 PostgreSQL 配置说明
 
-This document explains how FetchNews now uses host PostgreSQL as the preferred local database and how Alembic fits into that flow.
+本文档说明当前项目如何在本地使用 PostgreSQL、在哪里配置、需要执行哪些初始化 SQL，以及 Alembic 与应用初始化的边界。
 
-## 1. Effective Database Settings
+## 1. PostgreSQL 在哪里配置
 
-Primary configuration entry points:
-
-- [fetchnews/settings.py](/D:/Code/Project/FetchNews/fetchnews/settings.py)
-- [.env.example](/D:/Code/Project/FetchNews/.env.example)
-- [docker-compose.yml](/D:/Code/Project/FetchNews/docker-compose.yml)
-- [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
-
-Key environment variables:
+当前实际生效的数据库配置项是：
 
 - `APP_DATABASE_URL`
-- `APP_DATABASE_BOOTSTRAP_MODE`
 
-Recommended local values:
+常见位置：
+
+- 项目根目录 `.env`
+- `docker-compose.yml` 中传入的环境变量
+- 本地手动启动命令中的环境变量覆盖
+
+推荐的本地 `.env` 写法：
 
 ```env
 APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@localhost:5432/fetchnews
 APP_DATABASE_BOOTSTRAP_MODE=skip
 ```
 
-Meaning:
+含义：
 
-- PostgreSQL is now the preferred local development database
-- SQLAlchemy metadata bootstrap is still used automatically for `SQLite` and tests
-- PostgreSQL paths should use Alembic migrations instead of `create_all`
+- 使用宿主机本地 PostgreSQL
+- 应用不再自己创建 schema，而是交给 Alembic
 
-## 2. Required SQL For This Round
+## 2. Compose 里如何连接宿主机 PostgreSQL
 
-If you are bootstrapping a fresh local PostgreSQL instance for the current codebase, these are the SQL statements you need to execute manually first:
+当前 Compose 已改为连接宿主机数据库，不再默认启动 PostgreSQL 容器。
+
+应用容器使用：
+
+```env
+APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews
+```
+
+这意味着：
+
+- `api`、`worker`、`beat` 会连接你本机 PostgreSQL
+- `redis` 仍可由 Compose 启动
+- 启动前需要确保宿主机 PostgreSQL 已运行
+
+## 3. 本轮必须手动执行的初始化 SQL
+
+### 3.1 全新本地 PostgreSQL
+
+如果本地 PostgreSQL 还没有准备好，先在 `psql` 中执行：
 
 ```sql
 CREATE USER fetchnews WITH PASSWORD 'fetchnews';
@@ -42,7 +57,16 @@ GRANT ALL ON SCHEMA public TO fetchnews;
 ALTER SCHEMA public OWNER TO fetchnews;
 ```
 
-If the role or database already exists, use the safer update path instead of recreating them:
+这几条 SQL 的作用：
+
+- 创建数据库用户 `fetchnews`
+- 创建数据库 `fetchnews`
+- 将数据库所有权交给该用户
+- 将 `public` schema 权限和所有权交给该用户
+
+### 3.2 角色和数据库已存在时
+
+如果角色和数据库已经存在，只需要更新它们：
 
 ```sql
 ALTER USER fetchnews WITH PASSWORD 'fetchnews';
@@ -52,117 +76,66 @@ GRANT ALL ON SCHEMA public TO fetchnews;
 ALTER SCHEMA public OWNER TO fetchnews;
 ```
 
-Practical boundary for this round:
+## 4. 哪些内容不应该手写 SQL
 
-- the SQL above is the only database bootstrap SQL you are expected to run by hand
-- table creation and later schema changes should go through Alembic
-- the bootstrap admin account is created by application startup, not by manual SQL
+本轮不需要手动执行建表 SQL。
 
-Optional extensions for later phases:
+原因：
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-```
-
-Neither extension is required by the current codebase.
-
-## 3. How Schema Initialization Works Now
-
-Current behavior is defined in [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py).
-
-Bootstrap modes:
-
-- `create_all`: create tables from SQLAlchemy metadata
-- `skip`: do not create tables automatically
-- `auto`: use `create_all` for tests and `SQLite`, use `skip` for PostgreSQL
-
-Recommended PostgreSQL path:
-
-1. keep `APP_DATABASE_BOOTSTRAP_MODE=skip`
-2. run `alembic upgrade head`
-3. start the API, worker, and beat services
-
-What happens after the manual SQL:
-
-- `alembic upgrade head` applies the initial schema migration
-- application startup ensures the bootstrap admin account exists when `APP_AUTH_ENABLED=true`
-- you should not manually paste the full table DDL into `psql`
-
-## 4. Alembic Commands
-
-Initial migration assets now live in:
-
-- [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
-- [alembic/env.py](/D:/Code/Project/FetchNews/alembic/env.py)
-- [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/alembic/versions/20260401_0001_initial_schema.py)
-
-Apply the schema:
+- 业务表结构统一由 Alembic 创建
+- 迁移命令是：
 
 ```bash
 alembic upgrade head
 ```
 
-Check the current version:
+因此，手动 SQL 仅限：
 
-```bash
-alembic current
-```
+- 角色创建
+- 数据库创建
+- schema 权限与所有权配置
 
-Create a new migration after schema changes:
+业务表、索引与后续 schema 变更都应进入 Alembic migration。
 
-```bash
-alembic revision --autogenerate -m "describe change"
-```
+## 5. Bootstrap Admin 是否需要手写 SQL
 
-## 5. Compose Behavior
+不需要。
 
-Compose now assumes PostgreSQL is already running on the host machine.
+当前管理员账号由应用启动阶段根据环境变量自动补齐，相关变量包括：
 
-Application containers use:
+- `APP_BOOTSTRAP_ADMIN_USERNAME`
+- `APP_BOOTSTRAP_ADMIN_PASSWORD`
+- `APP_BOOTSTRAP_ADMIN_DISPLAY_NAME`
 
-```env
-APP_DATABASE_URL=postgresql+psycopg://fetchnews:fetchnews@host.docker.internal:5432/fetchnews
-```
+也就是说：
 
-Recommended sequence:
+- 数据库角色和库需要你手动准备
+- 应用表结构由 Alembic 创建
+- 管理员账号由应用初始化逻辑自动创建或更新
+
+## 6. 推荐启动顺序
+
+### 使用 Compose
 
 ```bash
 docker compose run --rm migrate
 docker compose up api worker beat web redis
 ```
 
-Important notes:
+### 手动启动
 
-- `migrate` runs Alembic against the host PostgreSQL instance
-- `api`, `worker`, and `beat` use `APP_DATABASE_BOOTSTRAP_MODE=skip`
-- Compose no longer declares a PostgreSQL service
+```bash
+alembic upgrade head
+uvicorn fetchnews.main:app --host 0.0.0.0 --port 8000 --reload
+celery -A fetchnews.tasks.worker.celery_app worker --loglevel=info
+celery -A fetchnews.tasks.worker.celery_app beat --loglevel=info
+cd web
+npm run dev -- --host 0.0.0.0
+```
 
-## 6. What Tables Exist After Migration
+## 7. 如何验证 PostgreSQL 已正确接入
 
-The initial migration creates at least these tables:
-
-- `users`
-- `audit_logs`
-- `sources`
-- `ingest_runs`
-- `raw_items`
-- `normalized_items`
-- `stories`
-- `article_drafts`
-- `post_variants`
-- `publish_jobs`
-- `alembic_version`
-
-## 7. Verification
-
-After running migrations, verify with:
-
-1. `alembic current`
-2. `curl http://localhost:8000/healthz`
-3. `python -m pytest`
-
-If you want to verify the database directly in `psql`, these queries are sufficient:
+执行迁移后，可以在 `psql` 中检查：
 
 ```sql
 \dt
@@ -170,8 +143,21 @@ SELECT version_num FROM alembic_version;
 SELECT username, role, is_active FROM users ORDER BY id;
 ```
 
-If the API starts but PostgreSQL has no tables, check these first:
+预期结果：
 
-- `APP_DATABASE_BOOTSTRAP_MODE` is not accidentally set to `skip` without running Alembic
-- `APP_DATABASE_URL` points to the intended host database
-- the local Python or container environment has `psycopg` available
+- 能看到业务表
+- `alembic_version` 有当前版本号
+- `users` 表中有 bootstrap 管理员账号
+
+## 8. 当前为何不使用 SQLite
+
+当前项目依然支持 `SQLite` 作为测试或临时路径，但本地开发正式推荐 PostgreSQL，原因是：
+
+- 当前工作流已经涉及 Alembic、鉴权、审计与更接近生产的 schema 演进
+- 后续还会引入更复杂的编辑历史、模板和发布记录
+- PostgreSQL 才是当前仓库的主路径
+
+## 9. 文档约束
+
+- PostgreSQL 配置文档统一使用中文
+- 保留 SQL、环境变量和工具命令原文，但说明必须使用中文

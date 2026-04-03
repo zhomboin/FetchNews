@@ -1,190 +1,196 @@
-# FetchNews Current Implementation Status
+# FetchNews 当前实现状态
 
-Updated: `2026-04-01`
+更新时间：`2026-04-03`
 
-## Overview
+## 总览
 
-FetchNews is now a working internal prototype instead of a documentation-only repository. The core pipeline is available end to end:
+`FetchNews` 已经从纯文档仓库演进为可运行的内部原型。当前主链路已经打通：
 
-1. ingest source content
-2. persist raw items
-3. normalize, deduplicate, cluster, and score
-4. generate daily / weekly / monthly drafts
-5. generate multi-platform variants
-6. review content in the admin console
-7. schedule publishing jobs, write back results, retry failures, and record feedback
-8. feed source, section, and platform feedback back into ranking and copy strategy
-9. protect the console with login, roles, audit logs, alerts, and migrations
+1. 采集白名单来源
+2. 原始事件入库
+3. 标准化、去重、聚类与评分
+4. 生成日报 / 周报 / 月报草稿
+5. 生成多平台变体
+6. 在后台审核内容
+7. 创建发布任务、轮询结果、失败重试与效果回写
+8. 将来源、栏目与平台反馈反向注入排序与文案策略
+9. 用登录、角色、审计、告警和迁移保护系统
 
-Current phase status:
+当前阶段状态：
 
-- `Phase 00`: completed
-- `Phase 01`: completed
-- `Phase 02`: baseline completed
-- `Phase 03`: baseline completed
-- `Phase 04`: baseline completed
-- `Phase 05`: baseline completed
-- `Phase 06`: in progress
+- `阶段 00`：已完成
+- `阶段 01`：已完成
+- `阶段 02`：基础完成
+- `阶段 03`：基础完成
+- `阶段 04`：基础完成
+- `阶段 05`：基础完成
+- `阶段 06`：持续优化中
 
-## What Is Already Implemented
+## 已经实现的内容
 
-### Phase 00: Docs and Decisions
+### 阶段 00：文档与决策基线
 
-Implemented:
+已实现：
 
-- architecture and planning documents
-- frontend style baseline
-- TypeScript conventions
-- startup and validation guide
-- collaboration and encoding rules
+- 架构与计划文档
+- 前端风格基线
+- TypeScript 规范
+- 启动与验证指南
+- 协作与编码规则
 
-### Phase 01: Foundation
+### 阶段 01：基础骨架
 
-Implemented:
+已实现：
 
-- `FastAPI` app entry
-- database session and core models
-- `React SPA` admin shell
-- `Docker Compose` local orchestration
-- backend and frontend verification baseline
+- `FastAPI` 应用入口
+- 数据库 session 与核心模型
+- `React SPA` 控制台骨架
+- `Docker Compose` 本地编排
+- 前后端验证基线
 
-### Phase 02: Ingestion
+### 阶段 02：来源采集
 
-Implemented:
+已实现：
 
-- source catalog
-- ingest run persistence
-- raw item persistence
-- manual ingest trigger
-- ingest monitoring page
-- default `Celery beat` ingest schedule
+- 来源目录
+- 采集批次持久化
+- 原始事件持久化
+- 手动触发采集
+- 采集监控页面
+- 默认 `Celery beat` 调度
 
-### Phase 03: Normalize, Deduplicate, Cluster
+### 阶段 03：标准化、去重、聚类
 
-Implemented:
+已实现：
 
-- `normalized_items` storage
-- canonical URL normalization
-- title normalization
-- story clustering and scoring
-- risk flags
-- manual story approval
-- pipeline rebuild endpoint
+- `normalized_items` 存储
+- canonical URL 归一化
+- 标题归一化
+- story 聚类与评分
+- 风险标记
+- story 人工审核
+- pipeline 重建接口
 
-### Phase 04: Content Generation
+### 阶段 04：内容生成
 
-Implemented:
+已实现：
 
-- daily digest generation
-- weekly digest generation
-- monthly digest generation
-- digest generation for selected story sets
-- persisted `generation_note`
-- section-based article output
-- platform variants for `wechat`, `x`, and `telegram`
+- 日报生成
+- 周报生成
+- 月报生成
+- 指定 story 范围生成
+- `generation_note` 持久化
+- 基于栏目输出正文
+- `wechat`、`x`、`telegram` 平台变体
 
-### Phase 05: Review and Publishing
+### 阶段 05：审核与发布
 
-Implemented:
+已实现：
 
-- pre-publish review inside the draft center
-- publish job creation
-- publish result writeback
-- retry flow
-- mock publish executor
-- due-job dispatch and poll flow
-- publish feedback writeback
+- 草稿中心内的发布前审核
+- 发布任务创建
+- 发布结果回写
+- 失败重试
+- mock 发布执行器
+- 到期任务 dispatch 与 poll 流程
+- 发布效果回写
 
-### Phase 06: Optimization, Ops, and Hardening
+### 阶段 06：优化、运维与治理
 
-Implemented:
+已实现：
 
-- unified ops summary
-- recent failure grouping
-- retry suggestions
-- section review metrics
-- publish platform metrics
-- ops drill-down views
-- section momentum model
-- source governance feedback
-- engagement feedback flowing back into source ranking
-- weekly / monthly section mix
-- platform copy strategy driven by historical engagement
-- weekly / monthly variants that combine platform strategy with section mix
-- Alembic migration baseline
-- PostgreSQL-first local path
-- login, role-based access control, and bootstrap admin setup
-- audit log persistence for key mutations
-- ops alerts surfaced in the SPA
-- frontend test baseline with `Vitest`
+- 运维汇总仪表盘
+- 最近失败分组
+- 重试建议
+- 栏目审核指标
+- 平台发布指标
+- ops drill-down 详情页
+- 栏目势能模型
+- 来源治理反馈
+- 互动反馈反向作用于来源排序
+- 周报 / 月报栏目混排策略
+- 基于历史互动的平台文案策略
+- 周报 / 月报变体按栏目与平台联合优化
+- Alembic 迁移基线
+- PostgreSQL 优先本地路径
+- 登录、角色权限和管理员引导创建
+- 关键写操作审计日志
+- 前端告警面板
+- `Vitest` 前端测试基线
 
-## Current Admin Pages
+## 当前后台页面
 
-The React admin console now covers:
+React 控制台当前覆盖：
 
-- `/`: ops dashboard
-- `/ingestion`: ingestion runs and source governance
-- `/stories`: story review, filtering, and risk view
-- `/articles`: draft center, variant preview, and publish review
-- `/publishing`: publishing-centric ops view
-- `/ops/details`: drill-down for sections, platforms, and failures
+- `/`：运维首页
+- `/ingestion`：采集批次与来源治理
+- `/stories`：story 审核、筛选与风险查看
+- `/articles`：草稿中心、变体预览与发布前审核
+- `/publishing`：发布视角运维页
+- `/ops/details`：栏目、平台与失败来源 drill-down
 
-## Current Limitations
+## 当前限制
 
-### Source Ingestion
+### 来源采集
 
-Still missing or incomplete:
+仍未完全完成：
 
-- robust real connectors for `arXiv`, `Hugging Face`, `Papers with Code`, `Reddit`, and `Hacker News`
-- full credential and rate-limit handling
-- stronger structure-change resilience and replay tools
+- 更稳健的 `arXiv`、`Hugging Face`、`Papers with Code`、`Reddit`、`Hacker News` 真实连接器
+- 更完整的凭证与限流处理
+- 更强的页面结构变更恢复与回放工具
 
-### Content Understanding
+### 内容理解
 
-Still missing or incomplete:
+仍未完全完成：
 
-- real LLM provider integration
-- `pgvector` / embedding-based clustering and recall
-- stronger citation and explainability views
-- richer ranking controls and editor-facing explanations
+- 真实 LLM provider 集成
+- `pgvector` / embedding 聚类与召回
+- 更强的引用链路与可解释性视图
+- 更细的排序控制与编辑侧解释能力
 
-### Publishing
+### 发布能力
 
-Still missing or incomplete:
+仍未完全完成：
 
-- real `wechat`, `x`, and `telegram` publishing connectors
-- webhook or callback integration for provider-side status sync
-- production-grade external publish hardening
+- 真实 `wechat`、`x`、`telegram` 发布器
+- provider 侧 webhook / callback 同步
+- 面向生产的发布防抖与容错增强
 
-### Product and Engineering Foundation
+### 产品与工程基础
 
-Still missing or incomplete:
+仍未完全完成：
 
-- user management UI and credential rotation flow
-- audit-log browsing UI
-- external alert delivery channels
-- production monitoring stack
-- staged database migration workflow for shared environments
+- 用户管理 UI 与密码轮换流程
+- 审计日志浏览 UI
+- 外部告警通道
+- 生产级监控栈
+- 长生命周期 PostgreSQL 环境的分阶段迁移策略
 
-## Recommended Next Plan
+## 当前推荐后续方向
 
-### Highest Priority
+### 最高优先级
 
-1. implement real external publishing connectors
-2. strengthen real source connectors
-3. integrate a real LLM provider for summaries and draft generation
-4. extend alerting and audit-log inspection beyond the current baseline
+1. 接入真实发布器
+2. 强化真实来源连接器
+3. 接入真实 LLM provider
+4. 扩展告警和审计日志查看能力
 
-### Mid-Term Improvements
+### 中期优化
 
-1. add embedding-based similarity and retrieval
-2. improve story and article explainability
-3. keep feeding engagement signals into ranking, section mix, and platform strategy
-4. add configurable section quotas for weekly and monthly digests
+1. 引入 embedding 相似度与召回
+2. 增强 story 与文章的可解释性
+3. 持续将互动信号注入排序、栏目配比与平台文案策略
+4. 引入更细粒度的周报 / 月报模板配额
+5. 落地完整编辑工作台、编辑历史与人工干预能力
 
-### Platform and Ops Hardening
+### 平台与运维补齐
 
-1. add audit-log inspection views and filters
-2. add external alert delivery
-3. add richer operator history and change tracking
-4. add deployment, backup, and restore runbooks
+1. 增加审计日志查看与筛选
+2. 增加外部告警投递
+3. 增强操作历史和变更追踪
+4. 增加部署、备份和恢复 Runbook
+
+## 文档语言约束
+
+- 当前状态文档统一使用中文撰写
+- 引用英文术语时保留原词，但需配合中文解释

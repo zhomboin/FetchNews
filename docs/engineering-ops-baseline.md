@@ -1,114 +1,119 @@
-# Engineering And Ops Baseline
+# 工程与运维基线
 
-This document summarizes the engineering and operations hardening that now exists in the repository.
+本文档总结当前仓库已经具备的工程与运维补齐能力。
 
-## Included In This Baseline
+## 本轮基线包含的内容
 
-### Alembic migrations
+### Alembic 迁移
 
-Implemented:
+已实现：
 
-- Alembic config and environment files
-- initial schema migration for the current SQLAlchemy model set
-- explicit separation between `SQLite` test bootstrap and PostgreSQL migration flow
+- Alembic 配置与环境文件
+- 对应当前 SQLAlchemy 模型集的首个 schema migration
+- 显式区分 `SQLite` 测试引导与 PostgreSQL 迁移流程
 
-Key files:
+关键文件：
 
 - [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
 - [alembic/env.py](/D:/Code/Project/FetchNews/alembic/env.py)
 - [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/alembic/versions/20260401_0001_initial_schema.py)
 - [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py)
 
-SQL boundary for this round:
+本轮 SQL 边界：
 
-- manual SQL is limited to creating the PostgreSQL role, database, and schema ownership
-- application tables are created through Alembic, not pasted manually into `psql`
-- see [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md) for the exact SQL block
+- 手动 SQL 仅限 PostgreSQL 角色、数据库与 schema 权限初始化
+- 业务表结构统一通过 Alembic 创建，不手工粘贴 DDL 到 `psql`
+- 具体 SQL 见 [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
 
-### PostgreSQL formalization
+### PostgreSQL 正式化
 
-Implemented:
+已实现：
 
-- host PostgreSQL is the recommended local database path
-- compose no longer assumes a PostgreSQL container
-- explicit `APP_DATABASE_BOOTSTRAP_MODE` support
-- `migrate` service for the compose workflow
+- 宿主机 PostgreSQL 作为推荐本地数据库路径
+- Compose 不再默认拉起 PostgreSQL 容器
+- 显式支持 `APP_DATABASE_BOOTSTRAP_MODE`
+- 为 Compose 流程提供 `migrate` 服务
 
-Key files:
+关键文件：
 
 - [docker-compose.yml](/D:/Code/Project/FetchNews/docker-compose.yml)
 - [.env.example](/D:/Code/Project/FetchNews/.env.example)
 - [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
 
-### Login, permissions, and audit
+### 登录、权限与审计
 
-Implemented:
+已实现：
 
-- auth feature flag endpoint: `GET /auth/config`
-- login endpoint: `POST /auth/login`
-- current-user endpoint: `GET /auth/me`
-- role-based access control for protected API routes
-- bootstrap admin account via environment variables
-- audit log persistence for key mutating operations
+- 鉴权开关接口：`GET /auth/config`
+- 登录接口：`POST /auth/login`
+- 当前用户接口：`GET /auth/me`
+- 受保护 API 的角色权限控制
+- 通过环境变量引导创建管理员账号
+- 对关键写操作持久化审计日志
 
-Current roles:
+当前角色：
 
-- `viewer`: read-only API access
-- `editor`: review, generate, publish, and manual operational actions
-- `admin`: full access, currently used for bootstrap login
+- `viewer`：只读 API 访问
+- `editor`：审核、生成、发布和手动运维操作
+- `admin`：完整权限，当前用于 bootstrap 登录
 
-Key files:
+关键文件：
 
 - [fetchnews/core/security.py](/D:/Code/Project/FetchNews/fetchnews/core/security.py)
 - [fetchnews/core/audit.py](/D:/Code/Project/FetchNews/fetchnews/core/audit.py)
 - [fetchnews/main.py](/D:/Code/Project/FetchNews/fetchnews/main.py)
 - [fetchnews/models.py](/D:/Code/Project/FetchNews/fetchnews/models.py)
 
-### Alerts and monitoring
+### 告警与监控
 
-Implemented:
+已实现：
 
-- alerts in ops summary
-- grouped recent failures
-- platform metrics
-- section review metrics
-- recommendation feed
-- frontend ops alert cards and drill-down support
+- ops summary 中的告警
+- 最近失败分组
+- 平台指标
+- 栏目审核指标
+- 建议列表
+- 前端 ops 告警卡片与 drill-down 支持
 
-Key files:
+关键文件：
 
 - [fetchnews/ops/service.py](/D:/Code/Project/FetchNews/fetchnews/ops/service.py)
 - [web/src/features/ops/ops-dashboard-page.tsx](/D:/Code/Project/FetchNews/web/src/features/ops/ops-dashboard-page.tsx)
 
-### Frontend test baseline
+### 前端测试基线
 
-Implemented:
+已实现：
 
-- `Vitest` test runner
-- `Testing Library` setup
-- API auth-header test
-- login form submission test
+- `Vitest` 测试运行器
+- `Testing Library` 测试环境
+- API 鉴权头测试
+- 登录表单提交流程测试
 
-Commands:
+命令：
 
 ```bash
 cd web
 npm run test:run
 ```
 
-Key files:
+关键文件：
 
 - [web/package.json](/D:/Code/Project/FetchNews/web/package.json)
 - [web/vite.config.ts](/D:/Code/Project/FetchNews/web/vite.config.ts)
 - [web/src/lib/api.test.ts](/D:/Code/Project/FetchNews/web/src/lib/api.test.ts)
 - [web/src/features/auth/login-page.test.tsx](/D:/Code/Project/FetchNews/web/src/features/auth/login-page.test.tsx)
 
-## Remaining Gaps
+## 仍待补齐的能力
 
-Still not fully implemented:
+尚未完全完成：
 
-- user management UI and password reset flow
-- audit-log inspection UI and export endpoints
-- external alert delivery such as email, webhook, or Slack
-- production monitoring stack such as Prometheus / Grafana or Sentry
-- staged migration strategy for existing long-lived PostgreSQL environments
+- 用户管理 UI 与密码重置流程
+- 审计日志查看 UI 与导出接口
+- 邮件、Webhook、Slack 等外部告警通道
+- `Prometheus / Grafana` 或 `Sentry` 等生产监控栈
+- 长生命周期 PostgreSQL 环境的分阶段迁移策略
+
+## 文档语言约束
+
+- 工程与运维说明统一使用中文撰写
+- 保留英文工具名时需配合中文语义说明

@@ -1,177 +1,180 @@
-# FetchNews Master Plan
+# FetchNews 总体计划
 
-## Overall Goal
+## 总体目标
 
-Build an AI news production and distribution system for Chinese-speaking AI practitioners. The system should continuously ingest high-value sources, normalize and cluster content, generate daily / weekly / monthly drafts plus platform variants, support human review, and feed publish outcomes back into ranking, section strategy, and platform strategy.
+构建一套面向中文 AI 从业者的资讯生产与分发系统。系统需要持续抓取高价值来源，完成标准化、聚类、草稿生成、多平台派发、人工审核和发布结果回流，并将反馈反向作用于排序、栏目策略和平台文案策略。
 
-## Current Program Status
+## 当前阶段状态
 
-Current status by phase:
+- `阶段 00`：已完成
+- `阶段 01`：已完成
+- `阶段 02`：基础完成
+- `阶段 03`：基础完成
+- `阶段 04`：基础完成
+- `阶段 05`：基础完成
+- `阶段 06`：进行中
 
-- `Phase 00`: completed
-- `Phase 01`: completed
-- `Phase 02`: baseline completed
-- `Phase 03`: baseline completed
-- `Phase 04`: baseline completed
-- `Phase 05`: baseline completed
-- `Phase 06`: in progress
-
-Detailed implementation status:
+详细实现快照：
 
 - [../current-status.md](/D:/Code/Project/FetchNews/docs/current-status.md)
 
-## Phase Breakdown
+## 阶段拆分
 
-### Phase 00: Docs and Decision Baseline
+### 阶段 00：文档与决策基线
 
-Goal:
+目标：
 
-- establish architecture, collaboration rules, and planning baseline
+- 建立架构、协作规则、风格基线与计划入口
 
-Status:
+状态：
 
-- completed
+- 已完成
 
-Doc:
+文档：
 
 - [phase-00-docs-and-decisions.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-00-docs-and-decisions.md)
 
-### Phase 01: Foundation
+### 阶段 01：基础骨架
 
-Goal:
+目标：
 
-- backend skeleton
-- frontend SPA skeleton
-- local orchestration and verification baseline
+- 后端骨架
+- 前端 SPA 骨架
+- 本地编排与验证基线
 
-Status:
+状态：
 
-- completed
+- 已完成
 
-Doc:
+文档：
 
 - [phase-01-foundation.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-01-foundation.md)
 
-### Phase 02: Ingestion
+### 阶段 02：来源采集
 
-Goal:
+目标：
 
-- source catalog
-- raw ingest persistence
-- scheduling and monitoring
+- 来源目录
+- 原始事件入库
+- 调度与监控
 
-Status:
+状态：
 
-- baseline completed
+- 基础完成
 
-Doc:
+文档：
 
 - [phase-02-ingestion.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-02-ingestion.md)
 
-### Phase 03: Normalize and Cluster
+### 阶段 03：标准化与聚类
 
-Goal:
+目标：
 
-- normalization
-- deduplication
-- clustering
-- scoring
-- story review
+- 标准化
+- 去重
+- 聚类
+- 评分
+- story 审核
 
-Status:
+状态：
 
-- baseline completed
+- 基础完成
 
-Doc:
+文档：
 
 - [phase-03-normalize-and-cluster.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-03-normalize-and-cluster.md)
 
-### Phase 04: Content Generation
+### 阶段 04：内容生成
 
-Goal:
+目标：
 
-- daily / weekly / monthly drafts
-- platform variants
-- section-based output
+- 日报 / 周报 / 月报草稿
+- 平台短帖变体
+- 基于栏目组织输出
 
-Status:
+状态：
 
-- baseline completed
+- 基础完成
 
-Doc:
+文档：
 
 - [phase-04-content-generation.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-04-content-generation.md)
 
-### Phase 05: Review and Publishing
+### 阶段 05：审核与发布
 
-Goal:
+目标：
 
-- admin review flow
-- publish jobs
-- writeback, retries, feedback
+- 后台审核流程
+- 发布任务
+- 结果回写、重试与反馈
 
-Status:
+状态：
 
-- baseline completed
+- 基础完成
 
-Note:
+说明：
 
-- the workflow is running internally, but real platform integrations are still pending
+- 工作流已在内部原型中跑通，但真实平台集成仍待补齐
 
-Doc:
+文档：
 
 - [phase-05-review-and-publishing.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-05-review-and-publishing.md)
 
-### Phase 06: Optimization and Operations
+### 阶段 06：优化、运维与治理
 
-Goal:
+目标：
 
-- source governance
-- section momentum
-- platform feedback loops
-- ops diagnostics and optimization
+- 来源治理
+- 栏目势能
+- 平台反馈回路
+- 运维诊断与持续优化
+- 编辑工作台、人工干预与编辑历史能力
 
-Status:
+状态：
 
-- in progress
+- 进行中
 
-Already done in this phase:
+当前已完成：
 
-- ops dashboard
-- failure grouping
-- platform metrics
-- section momentum
-- source governance feedback
-- source engagement feedback in ranking
-- weekly / monthly section mix
-- engagement-driven platform copy strategy
-- weekly / monthly variants that combine platform strategy and section mix
+- ops 仪表盘
+- 失败分组
+- 平台指标
+- 栏目势能
+- 来源治理反馈
+- 来源互动反馈回流排序
+- 周报 / 月报栏目混排
+- 互动驱动的平台文案策略
+- 周报 / 月报的栏目与平台联合变体优化
+- 编辑工作台设计 spec
 
-Doc:
+文档：
 
 - [phase-06-optimization-and-operations.md](/D:/Code/Project/FetchNews/docs/project-plan/phase-06-optimization-and-operations.md)
 
-## Milestones
+## 当前里程碑
 
-Reached:
+已达成：
 
-- milestone A: frontend and backend skeleton run locally
-- milestone B: ingestion, persistence, and monitoring run locally
-- milestone C: story clustering and draft generation run locally
-- milestone D: review, publish orchestration, and feedback loop run locally
+- 里程碑 A：前后端骨架可本地运行
+- 里程碑 B：采集、入库与监控可本地运行
+- 里程碑 C：story 聚类与草稿生成可本地运行
+- 里程碑 D：审核、发布编排与反馈回路可本地运行
+- 里程碑 E：工程与运维基线已建立
 
-Still pending:
+仍待完成：
 
-- milestone E: real source and real platform integrations are production-viable
-- milestone F: LLM and vector capabilities enter the main workflow
-- milestone G: deployment, security, migrations, and monitoring are production-ready
+- 里程碑 F：真实来源与真实平台集成达到可生产试运行
+- 里程碑 G：LLM 与向量能力进入主工作流
+- 里程碑 H：编辑工作台、编辑历史与人工干预能力完整可用
+- 里程碑 I：部署、安全、迁移与监控达到生产可用水平
 
-## Next Priorities
+## 下一步优先级
 
-Recommended order:
+推荐顺序：
 
-1. real publishers
-2. stronger real ingestion connectors
-3. LLM and embedding integration
-4. database migrations and deployment hardening
-5. login, permissions, monitoring, and audit support
+1. 真实发布器
+2. 更稳健的真实采集连接器
+3. LLM 与 embedding 集成
+4. 完整编辑工作台实现
+5. 数据库迁移与部署加固
+6. 登录、权限、告警与审计继续补齐
