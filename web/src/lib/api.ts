@@ -35,6 +35,8 @@ type ApiSourceSpec = {
   effective_score_multiplier: number | null;
   feedback_signals: Record<string, number>;
   governance_flags: string[];
+  incremental_cursor: string | null;
+  last_success_at: string | null;
 };
 
 type ApiIngestRunError = {
@@ -131,6 +133,9 @@ type ApiPublishJob = {
   external_id: string | null;
   error_message: string | null;
   provider_job_id: string | null;
+  dispatch_key: string | null;
+  failure_category: string | null;
+  last_provider_status: string | null;
   performance_metrics: Record<string, number>;
   metrics_recorded_at: string | null;
   updated_at: string;
@@ -179,6 +184,7 @@ type ApiPublishPlatformMetric = {
   click_through_rate: number;
   interaction_rate: number;
   last_error: string | null;
+  last_failure_category: string | null;
 };
 
 type ApiSectionReviewMetric = {
@@ -287,6 +293,8 @@ export type SourceSpec = {
   effectiveScoreMultiplier: number | null;
   feedbackSignals: Record<string, number>;
   governanceFlags: string[];
+  incrementalCursor: string | null;
+  lastSuccessAt: string | null;
 };
 
 /**
@@ -429,6 +437,9 @@ export type PublishJobRecord = {
   externalId: string | null;
   errorMessage: string | null;
   providerJobId: string | null;
+  dispatchKey: string | null;
+  failureCategory: string | null;
+  lastProviderStatus: string | null;
   performanceMetrics: Record<string, number>;
   metricsRecordedAt: string | null;
   updatedAt: string;
@@ -519,6 +530,7 @@ export type PublishPlatformMetricRecord = {
   clickThroughRate: number;
   interactionRate: number;
   lastError: string | null;
+  lastFailureCategory: string | null;
 };
 
 /**
@@ -669,6 +681,8 @@ function mapSourceSpec(apiSource: ApiSourceSpec): SourceSpec {
     effectiveScoreMultiplier: apiSource.effective_score_multiplier,
     feedbackSignals: apiSource.feedback_signals,
     governanceFlags: apiSource.governance_flags,
+    incrementalCursor: apiSource.incremental_cursor,
+    lastSuccessAt: apiSource.last_success_at,
   };
 }
 
@@ -775,6 +789,9 @@ function mapPublishJob(apiJob: ApiPublishJob): PublishJobRecord {
     externalId: apiJob.external_id,
     errorMessage: apiJob.error_message,
     providerJobId: apiJob.provider_job_id,
+    dispatchKey: apiJob.dispatch_key,
+    failureCategory: apiJob.failure_category,
+    lastProviderStatus: apiJob.last_provider_status,
     performanceMetrics: apiJob.performance_metrics,
     metricsRecordedAt: apiJob.metrics_recorded_at,
     updatedAt: apiJob.updated_at,
@@ -833,6 +850,7 @@ function mapPublishPlatformMetric(apiMetric: ApiPublishPlatformMetric): PublishP
     clickThroughRate: apiMetric.click_through_rate,
     interactionRate: apiMetric.interaction_rate,
     lastError: apiMetric.last_error,
+    lastFailureCategory: apiMetric.last_failure_category,
   };
 }
 

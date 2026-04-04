@@ -86,6 +86,8 @@ class Source(Base):
     kind: Mapped[str] = mapped_column(String(50), index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     config: Mapped[dict] = mapped_column(JSON, default=dict)
+    incremental_cursor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -300,6 +302,9 @@ class PublishJob(Base):
     external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_job_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    dispatch_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    failure_category: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    last_provider_status: Mapped[str | None] = mapped_column(String(80), nullable=True)
     provider_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     performance_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     metrics_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

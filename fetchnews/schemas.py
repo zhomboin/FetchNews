@@ -20,6 +20,8 @@ class SourceSpec(BaseModel):
     effective_score_multiplier: float | None = None
     feedback_signals: dict = Field(default_factory=dict)
     governance_flags: list[str] = Field(default_factory=list)
+    incremental_cursor: str | None = None
+    last_success_at: datetime | None = None
 
 
 class AuthConfigResponse(BaseModel):
@@ -339,6 +341,9 @@ class PublishJobResponse(BaseModel):
     external_id: str | None = None
     error_message: str | None = None
     provider_job_id: str | None = None
+    dispatch_key: str | None = None
+    failure_category: str | None = None
+    last_provider_status: str | None = None
     performance_metrics: dict[str, int] = Field(default_factory=dict)
     metrics_recorded_at: datetime | None = None
     updated_at: datetime
@@ -387,6 +392,7 @@ class PublishPlatformMetricResponse(BaseModel):
     click_through_rate: float = 0.0
     interaction_rate: float = 0.0
     last_error: str | None = None
+    last_failure_category: str | None = None
 
 
 class SectionReviewMetricResponse(BaseModel):

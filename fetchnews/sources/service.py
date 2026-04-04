@@ -10,6 +10,7 @@ from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import IngestRunError, IngestRunResponse, RawIngestedItem, SourceSpec
 from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.connectors import SourceConnector, build_default_connector_registry
+from fetchnews.sources.real_connectors import FetchedSourceBatch
 
 
 def execute_ingest_run(
@@ -44,8 +45,10 @@ def execute_ingest_run(
             continue
 
         try:
-            fetched_items = connector.fetch(source)
-            items_ingested += _persist_raw_items(session, source, run, fetched_items)
+            fetched_batch = _normalize_fetched_batch(connector.fetch(source))
+            items_ingested += _persist_raw_items(session, source, run, fetched_batch.items)
+            source.incremental_cursor = fetched_batch.next_cursor
+            source.last_success_at = datetime.now(UTC)
             succeeded += 1
         except Exception as exc:
             failed += 1
@@ -122,7 +125,15 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
 
 
 def _resolve_connector(source: Source, registry: dict[str, SourceConnector]) -> SourceConnector | None:
-    return registry.get(source.platform) or registry.get(source.kind)
+    return registry.get(source.slug) or registry.get(source.platform) or registry.get(source.kind)
+
+
+def _normalize_fetched_batch(result: object) -> FetchedSourceBatch:
+    if isinstance(result, FetchedSourceBatch):
+        return result
+    if isinstance(result, list):
+        return FetchedSourceBatch(items=result)
+    raise RuntimeError("Connector returned an unsupported fetch result")
 
 
 def _persist_raw_items(session: Session, source: Source, run: IngestRun, items: list[RawIngestedItem]) -> int:

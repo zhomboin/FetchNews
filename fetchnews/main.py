@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import secrets
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
@@ -42,6 +43,7 @@ from fetchnews.publishing.service import (
     build_default_publisher_registry,
     create_publish_jobs,
     dispatch_due_publish_jobs,
+    handle_publish_callback,
     poll_publish_jobs,
     publish_job_to_response,
     retry_publish_job,
@@ -82,6 +84,9 @@ from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.governance import annotate_source_specs
 from fetchnews.sources.connectors import build_default_connector_registry
 from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
+
+
+DEFAULT_DEVELOPMENT_CALLBACK_SECRET = "fetchnews-dev-callback-secret"
 
 
 class AppState:
@@ -127,6 +132,7 @@ def create_app(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
+    resolved_callback_secret = _resolve_publish_callback_secret(resolved_settings)
     state = AppState(
         resolved_settings,
         connector_overrides=connector_overrides,
@@ -648,6 +654,41 @@ def create_app(
         db.commit()
         return result
 
+    @app.post("/publish-jobs/callback/{platform}", response_model=PublishJobResponse)
+    def handle_job_callback(
+        platform: str,
+        payload: dict[str, object],
+        callback_secret: str | None = Header(default=None, alias="X-FetchNews-Callback-Secret"),
+        db: Session = Depends(get_db),
+    ) -> PublishJobResponse:
+        _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
+        try:
+            result = handle_publish_callback(
+                db,
+                platform=platform,
+                payload=payload,
+                publisher_registry=state.publisher_registry,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record_audit_log(
+            db,
+            actor=None,
+            action="publish.callback",
+            resource_type="publish_job",
+            resource_id=result.id,
+            detail={
+                "platform": platform,
+                "provider_job_id": payload.get("provider_job_id"),
+                "provider_status": payload.get("status"),
+                "job_status": result.status,
+                "external_id": result.external_id,
+                "failure_category": result.failure_category,
+            },
+        )
+        db.commit()
+        return result
+
     @app.post("/publish-jobs/{job_id}/result", response_model=PublishJobResponse)
     def write_job_result(
         job_id: int,
@@ -798,6 +839,24 @@ def _auth_user_to_response(user: User) -> AuthUserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
     )
+
+
+def _validate_publish_callback_secret(
+    callback_secret: str | None,
+    *,
+    callback_secret_value: str,
+) -> None:
+    if callback_secret is None or not secrets.compare_digest(callback_secret, callback_secret_value):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid callback secret")
+
+
+def _resolve_publish_callback_secret(settings: Settings) -> str:
+    configured_secret = (settings.publish_callback_secret or "").strip()
+    if configured_secret:
+        return configured_secret
+    if settings.environment in {"development", "test"}:
+        return DEFAULT_DEVELOPMENT_CALLBACK_SECRET
+    raise RuntimeError("publish callback secret must be configured outside development/test")
 
 
 app = create_app()

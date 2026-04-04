@@ -11,6 +11,7 @@ from selectolax.parser import HTMLParser
 
 from fetchnews.models import Source
 from fetchnews.schemas import RawIngestedItem
+from fetchnews.sources.real_connectors import GitHubReleasesConnector, HuggingFacePapersConnector, PapersWithCodeConnector
 
 
 class SourceConnector(Protocol):
@@ -103,10 +104,13 @@ def build_default_connector_registry() -> dict[str, SourceConnector]:
     rss_connector = RssConnector()
     return {
         "github": GitHubTrendingConnector(),
+        "github-openai-releases": GitHubReleasesConnector(),
         "arxiv": rss_connector,
         "rss": rss_connector,
         "feed": rss_connector,
         "x": XAllowlistConnector(),
+        "hf-daily": HuggingFacePapersConnector(),
+        "paperswithcode-latest": PapersWithCodeConnector(),
     }
 
 

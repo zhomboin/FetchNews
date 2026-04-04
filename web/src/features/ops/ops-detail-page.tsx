@@ -538,11 +538,18 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                       <div className="publish-job-note-stack">
                         <span className="publish-job-note">Updated {formatDateTime(job.updatedAt)}</span>
                         {job.providerJobId ? <span className="publish-job-note">Provider job: {job.providerJobId}</span> : null}
+                        {job.dispatchKey ? <span className="publish-job-note">Dispatch key: {job.dispatchKey}</span> : null}
+                        {job.lastProviderStatus ? (
+                          <span className="publish-job-note">Provider status: {job.lastProviderStatus}</span>
+                        ) : null}
                         {job.externalId ? <span className="publish-job-note">External id: {job.externalId}</span> : null}
                         {job.metricsRecordedAt ? (
                           <span className="publish-job-note">
                             Metrics: {job.performanceMetrics.impressions ?? 0} impressions · {job.performanceMetrics.clicks ?? 0} clicks · {job.performanceMetrics.interactions ?? 0} interactions
                           </span>
+                        ) : null}
+                        {job.failureCategory ? (
+                          <span className="publish-job-note">Failure category: {job.failureCategory}</span>
                         ) : null}
                         {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                       </div>
@@ -615,6 +622,16 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
               <strong>{sourceSpec?.effectiveScoreMultiplier?.toFixed(2) ?? "--"}x</strong>
               <span>Effective ranking multiplier used by story scoring.</span>
             </article>
+            <article className="metric-cell">
+              <p>Cursor</p>
+              <strong>{sourceSpec?.incrementalCursor ?? "--"}</strong>
+              <span>Most recent incremental cursor persisted for this source.</span>
+            </article>
+            <article className="metric-cell">
+              <p>Last success</p>
+              <strong>{sourceSpec?.lastSuccessAt ? formatDateTime(sourceSpec.lastSuccessAt) : "--"}</strong>
+              <span>Last successful ingest writeback recorded for this source.</span>
+            </article>
           </section>
 
           <section className="ops-grid detail-grid">
@@ -663,6 +680,12 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                   <p className="source-governance-note">
                     Failures {sourceSpec.feedbackSignals.failed_ingest_runs ?? 0} · Pending {sourceSpec.feedbackSignals.pending_stories ?? 0} · Flagged {sourceSpec.feedbackSignals.flagged_stories ?? 0}
                   </p>
+                  {sourceSpec.incrementalCursor || sourceSpec.lastSuccessAt ? (
+                    <p className="source-governance-note">
+                      {sourceSpec.incrementalCursor ? `Cursor ${sourceSpec.incrementalCursor}` : "Cursor --"} ·{" "}
+                      {sourceSpec.lastSuccessAt ? `Last success ${formatDateTime(sourceSpec.lastSuccessAt)}` : "Last success --"}
+                    </p>
+                  ) : null}
                   {sourceSpec.governanceFlags.length > 0 ? (
                     <div className="failure-chip-list">
                       {sourceSpec.governanceFlags.map((flag) => (
