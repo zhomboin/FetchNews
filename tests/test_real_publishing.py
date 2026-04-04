@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 import pytest
@@ -279,6 +280,54 @@ def test_publish_callback_requires_callback_secret() -> None:
         )
         assert authorized_response.status_code == 200
         assert authorized_response.json()["status"] == "published"
+
+
+def test_development_environment_uses_stable_default_callback_secret() -> None:
+    app = create_app(
+        Settings(
+            database_url=f"sqlite:///./test_phase07_default_callback_secret_{uuid4().hex}.db",
+            redis_url="redis://localhost:6379/0",
+            environment="development",
+        )
+    )
+    publisher = TrackingPublisher()
+    app.state.container.publisher_registry["telegram"] = publisher
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key="phase07-default-callback-secret", target_date="2026-04-05")
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        dispatch_response = client.post("/publish-jobs/dispatch-due")
+        assert dispatch_response.status_code == 200
+
+        callback_response = client.post(
+            "/publish-jobs/callback/telegram",
+            json={
+                "provider_job_id": f"dispatch-telegram-{job_id}-submission-1",
+                "status": "published",
+                "external_id": "telegram-message-default-secret",
+            },
+            headers={"X-FetchNews-Callback-Secret": "fetchnews-dev-callback-secret"},
+        )
+        assert callback_response.status_code == 200
+        assert callback_response.json()["status"] == "published"
+
+
+def test_create_app_requires_explicit_callback_secret_outside_development_and_test() -> None:
+    with pytest.raises(RuntimeError, match="publish callback secret must be configured"):
+        create_app(
+            Settings(
+                database_url="sqlite:///./test_phase07_missing_callback_secret.db",
+                redis_url="redis://localhost:6379/0",
+                environment="production",
+            )
+        )
 
 
 def test_publish_callback_rejects_platform_mismatch() -> None:

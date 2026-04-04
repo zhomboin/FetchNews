@@ -158,3 +158,38 @@ def test_github_connector_live_fetch_filters_items_using_incremental_cursor(monk
     assert len(result.items) == 1
     assert result.items[0].external_id == "202"
     assert result.next_cursor == "2026-04-04T10:00:00+00:00"
+
+
+def test_huggingface_connector_returns_no_items_when_cursor_falls_out_of_current_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        @property
+        def text(self) -> str:
+            return """
+            <main>
+              <article><a href="/papers/hf-paper-3">Paper 3</a></article>
+              <article><a href="/papers/hf-paper-2">Paper 2</a></article>
+            </main>
+            """
+
+    source = Source(
+        slug="hf-daily",
+        label="Hugging Face Daily",
+        platform="huggingface",
+        priority="P1",
+        kind="html",
+        enabled=True,
+        config={"url": "https://huggingface.co/papers"},
+        incremental_cursor="/papers/hf-paper-1",
+    )
+
+    monkeypatch.setattr("fetchnews.sources.real_connectors.httpx.get", lambda *args, **kwargs: StubResponse())
+
+    result = HuggingFacePapersConnector().fetch(source)
+
+    assert result.items == []
+    assert result.next_cursor == "/papers/hf-paper-3"

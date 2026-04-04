@@ -86,6 +86,9 @@ from fetchnews.sources.connectors import build_default_connector_registry
 from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
 
+DEFAULT_DEVELOPMENT_CALLBACK_SECRET = "fetchnews-dev-callback-secret"
+
+
 class AppState:
     def __init__(
         self,
@@ -129,6 +132,7 @@ def create_app(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
+    resolved_callback_secret = _resolve_publish_callback_secret(resolved_settings)
     state = AppState(
         resolved_settings,
         connector_overrides=connector_overrides,
@@ -657,7 +661,7 @@ def create_app(
         callback_secret: str | None = Header(default=None, alias="X-FetchNews-Callback-Secret"),
         db: Session = Depends(get_db),
     ) -> PublishJobResponse:
-        _validate_publish_callback_secret(callback_secret, resolved_settings)
+        _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
         try:
             result = handle_publish_callback(
                 db,
@@ -824,10 +828,20 @@ def _auth_user_to_response(user: User) -> AuthUserResponse:
 
 def _validate_publish_callback_secret(
     callback_secret: str | None,
-    settings: Settings,
+    *,
+    callback_secret_value: str,
 ) -> None:
-    if callback_secret is None or not secrets.compare_digest(callback_secret, settings.publish_callback_secret):
+    if callback_secret is None or not secrets.compare_digest(callback_secret, callback_secret_value):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid callback secret")
+
+
+def _resolve_publish_callback_secret(settings: Settings) -> str:
+    configured_secret = (settings.publish_callback_secret or "").strip()
+    if configured_secret:
+        return configured_secret
+    if settings.environment in {"development", "test"}:
+        return DEFAULT_DEVELOPMENT_CALLBACK_SECRET
+    raise RuntimeError("publish callback secret must be configured outside development/test")
 
 
 app = create_app()

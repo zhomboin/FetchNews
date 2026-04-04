@@ -221,12 +221,16 @@ def _filter_records_by_id(
         return records, first_id
 
     filtered: list[dict[str, Any]] = []
+    cursor_found = False
     for record in records:
         record_id = _coerce_cursor(record.get(id_field))
         if record_id == cursor:
+            cursor_found = True
             break
         filtered.append(record)
-    return filtered, first_id
+    if cursor_found:
+        return filtered, first_id
+    return [], first_id
 
 
 def _coerce_author(value: object) -> str | None:
