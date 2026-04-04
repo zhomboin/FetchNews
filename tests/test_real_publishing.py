@@ -202,6 +202,7 @@ def test_publish_callback_marks_job_published_without_duplicate_submit() -> None
         database_url="sqlite:///./test_phase07_publish_callback.db",
         redis_url="redis://localhost:6379/0",
         environment="test",
+        publish_callback_secret="phase07-secret",
     )
     publisher = TrackingPublisher()
     app = create_app(settings, publisher_overrides={"telegram": publisher})
@@ -227,6 +228,7 @@ def test_publish_callback_marks_job_published_without_duplicate_submit() -> None
                 "status": "published",
                 "external_id": "telegram-message-42",
             },
+            headers={"X-FetchNews-Callback-Secret": "phase07-secret"},
         )
         assert callback_response.status_code == 200
         payload = callback_response.json()
@@ -234,6 +236,84 @@ def test_publish_callback_marks_job_published_without_duplicate_submit() -> None
         assert payload["external_id"] == "telegram-message-42"
         assert publisher.submit_calls == 1
         assert publisher.callback_calls == 1
+
+
+def test_publish_callback_requires_callback_secret() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_callback_secret.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        publish_callback_secret="phase07-secret",
+    )
+    publisher = TrackingPublisher()
+    app = create_app(settings, publisher_overrides={"telegram": publisher})
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key="phase07-callback-secret", target_date="2026-04-05")
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        dispatch_response = client.post("/publish-jobs/dispatch-due")
+        assert dispatch_response.status_code == 200
+
+        callback_payload = {
+            "provider_job_id": f"dispatch-telegram-{job_id}-submission-1",
+            "status": "published",
+            "external_id": "telegram-message-43",
+        }
+        unauthorized_response = client.post(
+            "/publish-jobs/callback/telegram",
+            json=callback_payload,
+        )
+        assert unauthorized_response.status_code == 401
+
+        authorized_response = client.post(
+            "/publish-jobs/callback/telegram",
+            json=callback_payload,
+            headers={"X-FetchNews-Callback-Secret": "phase07-secret"},
+        )
+        assert authorized_response.status_code == 200
+        assert authorized_response.json()["status"] == "published"
+
+
+def test_publish_callback_rejects_platform_mismatch() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_callback_platform_mismatch.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        publish_callback_secret="phase07-secret",
+    )
+    publisher = TrackingPublisher()
+    app = create_app(settings, publisher_overrides={"telegram": publisher})
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key="phase07-callback-platform", target_date="2026-04-05")
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        dispatch_response = client.post("/publish-jobs/dispatch-due")
+        assert dispatch_response.status_code == 200
+
+        mismatch_response = client.post(
+            "/publish-jobs/callback/x",
+            json={
+                "provider_job_id": f"dispatch-telegram-{job_id}-submission-1",
+                "status": "published",
+                "external_id": "telegram-message-44",
+            },
+            headers={"X-FetchNews-Callback-Secret": "phase07-secret"},
+        )
+        assert mismatch_response.status_code == 404
 
 
 def test_registry_uses_real_telegram_publisher_when_configured() -> None:
@@ -308,3 +388,26 @@ def test_write_publish_job_result_classifies_platform_failure_categories(
             failed_job = session.get(PublishJob, job_id)
             assert failed_job is not None
             assert failed_job.failure_category == expected_category
+
+
+def test_real_telegram_publisher_poll_fails_after_deadline_without_callback() -> None:
+    publisher = RealTelegramPublisher(bot_token="telegram-token")
+    job = PublishJob(
+        id=31,
+        article_id=9,
+        platform="telegram",
+        scheduled_for=datetime(2026, 4, 6, 10, 0, tzinfo=UTC),
+        status=PublishJobStatus.SCHEDULED,
+        retries=0,
+        provider_job_id="dispatch-telegram-31-telegram",
+        provider_payload={
+            "poll_deadline_at": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+        },
+        performance_metrics={},
+    )
+
+    poll_result = publisher.poll(job)
+
+    assert poll_result.terminal is True
+    assert poll_result.status == PublishJobStatus.FAILED
+    assert poll_result.error_message == "telegram publish callback timed out"

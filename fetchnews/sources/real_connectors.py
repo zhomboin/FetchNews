@@ -20,8 +20,14 @@ class FetchedSourceBatch:
 class GitHubReleasesConnector:
     def fetch(self, source: Source) -> FetchedSourceBatch:
         releases = source.config.get("fixture_releases")
+        next_cursor = _coerce_cursor(source.config.get("fixture_next_cursor"))
         if releases is None:
             releases = self._fetch_releases(source)
+            releases, next_cursor = _filter_records_by_datetime(
+                records=releases,
+                cursor=source.incremental_cursor,
+                field_name="published_at",
+            )
 
         items = [
             RawIngestedItem(
@@ -36,7 +42,7 @@ class GitHubReleasesConnector:
             )
             for release in releases
         ]
-        return FetchedSourceBatch(items=items, next_cursor=_coerce_cursor(source.config.get("fixture_next_cursor")))
+        return FetchedSourceBatch(items=items, next_cursor=next_cursor)
 
     def _fetch_releases(self, source: Source) -> list[dict[str, Any]]:
         response = httpx.get(
@@ -54,8 +60,14 @@ class GitHubReleasesConnector:
 class HuggingFacePapersConnector:
     def fetch(self, source: Source) -> FetchedSourceBatch:
         entries = source.config.get("fixture_entries")
+        next_cursor = _coerce_cursor(source.config.get("fixture_next_cursor"))
         if entries is None:
             entries = self._fetch_entries(source)
+            entries, next_cursor = _filter_records_by_id(
+                records=entries,
+                cursor=source.incremental_cursor,
+                id_field="id",
+            )
 
         items = [
             RawIngestedItem(
@@ -70,7 +82,7 @@ class HuggingFacePapersConnector:
             )
             for entry in entries
         ]
-        return FetchedSourceBatch(items=items, next_cursor=_coerce_cursor(source.config.get("fixture_next_cursor")))
+        return FetchedSourceBatch(items=items, next_cursor=next_cursor)
 
     def _fetch_entries(self, source: Source) -> list[dict[str, Any]]:
         response = httpx.get(
@@ -102,8 +114,14 @@ class HuggingFacePapersConnector:
 class PapersWithCodeConnector:
     def fetch(self, source: Source) -> FetchedSourceBatch:
         papers = source.config.get("fixture_papers")
+        next_cursor = _coerce_cursor(source.config.get("fixture_next_cursor"))
         if papers is None:
             papers = self._fetch_papers(source)
+            papers, next_cursor = _filter_records_by_datetime(
+                records=papers,
+                cursor=source.incremental_cursor,
+                field_name="published_at",
+            )
 
         items = [
             RawIngestedItem(
@@ -118,7 +136,7 @@ class PapersWithCodeConnector:
             )
             for paper in papers
         ]
-        return FetchedSourceBatch(items=items, next_cursor=_coerce_cursor(source.config.get("fixture_next_cursor")))
+        return FetchedSourceBatch(items=items, next_cursor=next_cursor)
 
     def _fetch_papers(self, source: Source) -> list[dict[str, Any]]:
         response = httpx.get(
@@ -156,6 +174,59 @@ def _coerce_datetime(value: object) -> datetime:
         if parsed is not None:
             return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return datetime.now(UTC)
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _filter_records_by_datetime(
+    *,
+    records: list[dict[str, Any]],
+    cursor: str | None,
+    field_name: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    cursor_dt = _parse_datetime(cursor)
+    latest_dt = cursor_dt
+    filtered: list[dict[str, Any]] = []
+
+    for record in records:
+        record_dt = _parse_datetime(record.get(field_name))
+        if record_dt is not None and (latest_dt is None or record_dt > latest_dt):
+            latest_dt = record_dt
+        if cursor_dt is not None and record_dt is not None and record_dt <= cursor_dt:
+            continue
+        filtered.append(record)
+
+    next_cursor = latest_dt.isoformat() if latest_dt is not None else _coerce_cursor(cursor)
+    return filtered, next_cursor
+
+
+def _filter_records_by_id(
+    *,
+    records: list[dict[str, Any]],
+    cursor: str | None,
+    id_field: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    first_id = _coerce_cursor(records[0].get(id_field)) if records else _coerce_cursor(cursor)
+    if cursor is None:
+        return records, first_id
+
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        record_id = _coerce_cursor(record.get(id_field))
+        if record_id == cursor:
+            break
+        filtered.append(record)
+    return filtered, first_id
 
 
 def _coerce_author(value: object) -> str | None:

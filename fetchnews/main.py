@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import secrets
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
@@ -653,8 +654,10 @@ def create_app(
     def handle_job_callback(
         platform: str,
         payload: dict[str, object],
+        callback_secret: str | None = Header(default=None, alias="X-FetchNews-Callback-Secret"),
         db: Session = Depends(get_db),
     ) -> PublishJobResponse:
+        _validate_publish_callback_secret(callback_secret, resolved_settings)
         try:
             result = handle_publish_callback(
                 db,
@@ -817,6 +820,14 @@ def _auth_user_to_response(user: User) -> AuthUserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
     )
+
+
+def _validate_publish_callback_secret(
+    callback_secret: str | None,
+    settings: Settings,
+) -> None:
+    if callback_secret is None or not secrets.compare_digest(callback_secret, settings.publish_callback_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid callback secret")
 
 
 app = create_app()

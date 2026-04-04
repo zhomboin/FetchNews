@@ -189,7 +189,11 @@ def handle_publish_callback(
     if not provider_job_id:
         raise ValueError("provider_job_id is required")
 
-    job = session.scalar(select(PublishJob).where(PublishJob.provider_job_id == provider_job_id))
+    job = session.scalar(
+        select(PublishJob)
+        .where(PublishJob.provider_job_id == provider_job_id)
+        .where(PublishJob.platform == platform)
+    )
     if job is None:
         raise ValueError("publish job not found")
 

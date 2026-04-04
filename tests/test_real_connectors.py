@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from fetchnews.models import Source
 from fetchnews.sources.real_connectors import (
     FetchedSourceBatch,
@@ -105,3 +107,54 @@ def test_paperswithcode_connector_returns_incremental_cursor_and_snapshots() -> 
     assert result.next_cursor == "pwc-cursor-2"
     assert result.items[0].published_at == datetime(2026, 4, 4, 11, 0, tzinfo=UTC)
     assert result.items[0].metadata["snapshot"]["id"] == "pwc-1"
+
+
+def test_github_connector_live_fetch_filters_items_using_incremental_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubResponse:
+        headers: dict[str, str] = {}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 201,
+                    "tag_name": "v1.2.4",
+                    "name": "OpenAI Python v1.2.4",
+                    "html_url": "https://github.com/openai/openai-python/releases/tag/v1.2.4",
+                    "published_at": "2026-04-04T09:00:00Z",
+                    "author": {"login": "openai"},
+                    "body": "Older release that should be skipped.",
+                },
+                {
+                    "id": 202,
+                    "tag_name": "v1.2.5",
+                    "name": "OpenAI Python v1.2.5",
+                    "html_url": "https://github.com/openai/openai-python/releases/tag/v1.2.5",
+                    "published_at": "2026-04-04T10:00:00Z",
+                    "author": {"login": "openai"},
+                    "body": "Newer release that should be ingested.",
+                },
+            ]
+
+    source = Source(
+        slug="github-openai-releases",
+        label="GitHub OpenAI Releases",
+        platform="github",
+        priority="P0",
+        kind="api",
+        enabled=True,
+        config={
+            "url": "https://api.github.com/repos/openai/openai-python/releases",
+        },
+        incremental_cursor="2026-04-04T09:30:00+00:00",
+    )
+
+    monkeypatch.setattr("fetchnews.sources.real_connectors.httpx.get", lambda *args, **kwargs: StubResponse())
+
+    result = GitHubReleasesConnector().fetch(source)
+
+    assert len(result.items) == 1
+    assert result.items[0].external_id == "202"
+    assert result.next_cursor == "2026-04-04T10:00:00+00:00"

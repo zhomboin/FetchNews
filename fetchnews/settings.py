@@ -1,3 +1,5 @@
+import secrets
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
     publish_interval_seconds: int = Field(default=60)
     mock_publish_completion_seconds: int = Field(default=0)
     publish_real_platform: str | None = Field(default=None)
+    publish_callback_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     telegram_bot_token: str | None = Field(default=None)
     x_bearer_token: str | None = Field(default=None)
     wechat_app_id: str | None = Field(default=None)
