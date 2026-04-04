@@ -17,6 +17,18 @@ DEFAULT_SOURCE_SPECS = [
         },
     ),
     SourceSpec(
+        slug="github-openai-releases",
+        label="GitHub OpenAI Releases",
+        platform="github",
+        priority="P0",
+        kind="api",
+        config={
+            "url": "https://api.github.com/repos/openai/openai-python/releases",
+            "trust_score": 6.2,
+            "score_multiplier": 1.08,
+        },
+    ),
+    SourceSpec(
         slug="arxiv-cs-ai",
         label="arXiv cs.AI",
         platform="arxiv",
@@ -62,6 +74,18 @@ DEFAULT_SOURCE_SPECS = [
             "url": "https://huggingface.co/papers",
             "trust_score": 4.2,
             "score_multiplier": 0.92,
+        },
+    ),
+    SourceSpec(
+        slug="paperswithcode-latest",
+        label="Papers with Code Latest",
+        platform="paperswithcode",
+        priority="P1",
+        kind="api",
+        config={
+            "url": "https://paperswithcode.com/api/v1/papers",
+            "trust_score": 4.8,
+            "score_multiplier": 0.96,
         },
     ),
     SourceSpec(

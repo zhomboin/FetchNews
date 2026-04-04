@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from fetchnews.main import create_app
 from fetchnews.models import IngestRun, IngestRunStatus, NormalizedItemRecord, RawItem, Source, Story, StoryStatus
 from fetchnews.schemas import RawIngestedItem
+from fetchnews.sources.real_connectors import FetchedSourceBatch
 from fetchnews.settings import Settings
 from fetchnews.tasks.worker import run_ingestion_job
 
@@ -19,6 +20,14 @@ class StubConnector:
         if self.error is not None:
             raise RuntimeError(self.error)
         return self.items
+
+
+class StubBatchConnector:
+    def __init__(self, batch: FetchedSourceBatch) -> None:
+        self.batch = batch
+
+    def fetch(self, source: Source) -> FetchedSourceBatch:
+        return self.batch
 
 
 def _github_item() -> RawIngestedItem:
@@ -394,3 +403,49 @@ def test_source_catalog_endpoint_applies_engagement_feedback_to_effective_weight
         assert reddit_ml["feedback_signals"]["engagement_clicks"] == 10
         assert reddit_ml["effective_score_multiplier"] < reddit_ml["config"]["score_multiplier"]
         assert "low_engagement" in reddit_ml["governance_flags"]
+
+
+def test_ingest_run_updates_source_cursor_and_raw_snapshots_for_real_connectors() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_real_connector_ingestion.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    connector_overrides = {
+        "github-openai-releases": StubBatchConnector(
+            FetchedSourceBatch(
+                items=[
+                    RawIngestedItem(
+                        source_slug="github-openai-releases",
+                        external_id="release-1",
+                        title="OpenAI Python SDK release",
+                        url="https://github.com/openai/openai-python/releases/tag/v1.2.3",
+                        author="openai",
+                        published_at=datetime(2026, 4, 4, 9, 0, tzinfo=UTC),
+                        content="Release notes for the OpenAI Python SDK.",
+                        metadata={"snapshot": {"id": "release-1", "tag_name": "v1.2.3"}},
+                    )
+                ],
+                next_cursor="github-cursor-2",
+            )
+        )
+    }
+    app = create_app(settings, connector_overrides=connector_overrides)
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == IngestRunStatus.COMPLETED
+        assert response.json()["items_ingested"] == 1
+
+        with app.state.container.session_factory() as session:
+            source = session.scalar(select(Source).where(Source.slug == "github-openai-releases"))
+            raw_item = session.scalar(select(RawItem).where(RawItem.external_id == "release-1"))
+
+            assert source is not None
+            assert source.incremental_cursor == "github-cursor-2"
+            assert source.last_success_at is not None
+            assert raw_item is not None
+            assert raw_item.payload["snapshot"]["id"] == "release-1"
+            assert raw_item.payload["snapshot"]["tag_name"] == "v1.2.3"
