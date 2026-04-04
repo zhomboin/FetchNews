@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from fetchnews.main import create_app
-from fetchnews.models import PublishJob, PublishJobStatus, Source, StoryStatus
+from fetchnews.models import ArticleDraft, PostVariant, PublishJob, PublishJobStatus, Source, StoryStatus
 from fetchnews.publishing.connectors import PublishPollResult, PublishSubmission
 from fetchnews.publishing.service import (
     build_default_publisher_registry,
@@ -24,12 +24,14 @@ def test_settings_expose_phase07_platform_credentials() -> None:
     settings = Settings(
         publish_real_platform="telegram",
         telegram_bot_token="telegram-token",
+        telegram_chat_id="-100123",
         x_bearer_token="x-token",
         wechat_app_id="wechat-app-id",
     )
 
     assert settings.publish_real_platform == "telegram"
     assert settings.telegram_bot_token == "telegram-token"
+    assert settings.telegram_chat_id == "-100123"
     assert settings.x_bearer_token == "x-token"
     assert settings.wechat_app_id == "wechat-app-id"
 
@@ -382,10 +384,12 @@ def test_registry_uses_real_telegram_publisher_when_configured() -> None:
         Settings(
             publish_real_platform="telegram",
             telegram_bot_token="telegram-token",
+            telegram_chat_id="-100123",
         )
     )
 
     assert isinstance(registry["telegram"], RealTelegramPublisher)
+    assert registry["telegram"].chat_id == "-100123"
 
 
 def test_auth_backed_platforms_use_placeholder_real_publishers_when_selected() -> None:
@@ -451,8 +455,120 @@ def test_write_publish_job_result_classifies_platform_failure_categories(
             assert failed_job.failure_category == expected_category
 
 
+class FailingSubmitPublisher:
+    def submit(self, job: PublishJob, article, variant) -> PublishSubmission:
+        raise RuntimeError("telegram auth token expired")
+
+    def poll(self, job: PublishJob) -> PublishPollResult:
+        return PublishPollResult(terminal=False)
+
+    def handle_callback(self, job: PublishJob, payload: dict[str, object]) -> PublishPollResult:
+        return PublishPollResult(
+            terminal=True,
+            status=PublishJobStatus.FAILED,
+            error_message="telegram auth token expired",
+        )
+
+
+def test_real_telegram_publisher_submit_calls_send_message_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "result": {
+                    "message_id": 42,
+                    "chat": {"id": "-100123"},
+                    "text": "Phase 07 Telegram publish",
+                },
+            }
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> StubResponse:
+        captured["url"] = url
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return StubResponse()
+
+    monkeypatch.setattr("fetchnews.publishing.real_publishers.httpx.post", fake_post)
+
+    publisher = RealTelegramPublisher(bot_token="telegram-token", chat_id="-100123")
+    article = ArticleDraft(
+        id=9,
+        target_date=date(2026, 4, 6),
+        title="Phase 07 title",
+        summary="Phase 07 summary",
+        body="Phase 07 body",
+        story_ids=[1],
+        story_keys=["phase07-story"],
+    )
+    variant = PostVariant(article_id=9, platform="telegram", content="Phase 07 Telegram publish")
+    job = PublishJob(
+        id=31,
+        article_id=9,
+        platform="telegram",
+        scheduled_for=datetime(2026, 4, 6, 10, 0, tzinfo=UTC),
+        status=PublishJobStatus.SCHEDULED,
+        retries=0,
+        dispatch_key="dispatch-telegram-31",
+        provider_payload={},
+        performance_metrics={},
+    )
+
+    submission = publisher.submit(job, article, variant)
+
+    assert captured["url"] == "https://api.telegram.org/bottelegram-token/sendMessage"
+    assert captured["json"] == {
+        "chat_id": "-100123",
+        "text": "Phase 07 Telegram publish",
+        "disable_web_page_preview": False,
+    }
+    assert captured["timeout"] == 10.0
+    assert submission.provider_job_id == "telegram-message-42"
+    assert submission.provider_payload["external_id"] == "42"
+    assert submission.provider_payload["provider_status"] == "accepted"
+    assert submission.provider_payload["telegram_result"] == {
+        "message_id": 42,
+        "chat": {"id": "-100123"},
+        "text": "Phase 07 Telegram publish",
+    }
+
+
+def test_dispatch_due_publish_jobs_marks_job_failed_when_submit_raises() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_dispatch_submit_failure.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    publisher = FailingSubmitPublisher()
+    app = create_app(settings, publisher_overrides={"telegram": publisher})
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key="phase07-dispatch-submit-failure", target_date="2026-04-06")
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        with app.state.container.session_factory() as session:
+            dispatch_result = dispatch_due_publish_jobs(session, {"telegram": publisher})
+            assert dispatch_result.jobs_dispatched == 0
+            assert dispatch_result.jobs_failed == 1
+            failed_job = session.get(PublishJob, job_id)
+            assert failed_job is not None
+            assert failed_job.status == PublishJobStatus.FAILED
+            assert failed_job.error_message == "telegram auth token expired"
+            assert failed_job.failure_category == "auth"
+            assert failed_job.last_provider_status == "submit_failed"
+
 def test_real_telegram_publisher_poll_fails_after_deadline_without_callback() -> None:
-    publisher = RealTelegramPublisher(bot_token="telegram-token")
+    publisher = RealTelegramPublisher(bot_token="telegram-token", chat_id="-100123")
     job = PublishJob(
         id=31,
         article_id=9,

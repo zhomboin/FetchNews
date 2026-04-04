@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     publish_real_platform: str | None = Field(default=None)
     publish_callback_secret: str | None = Field(default=None)
     telegram_bot_token: str | None = Field(default=None)
+    telegram_chat_id: str | None = Field(default=None)
     x_bearer_token: str | None = Field(default=None)
     wechat_app_id: str | None = Field(default=None)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])

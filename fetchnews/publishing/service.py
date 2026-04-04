@@ -26,8 +26,11 @@ def build_default_publisher_registry(settings: Settings | None = None) -> Publis
         return selected_platform in (None, "", platform)
 
     telegram_connector: PublisherConnector = mock_connector
-    if resolved_settings.telegram_bot_token and uses_selected_platform("telegram"):
-        telegram_connector = RealTelegramPublisher(bot_token=resolved_settings.telegram_bot_token)
+    if resolved_settings.telegram_bot_token and resolved_settings.telegram_chat_id and uses_selected_platform("telegram"):
+        telegram_connector = RealTelegramPublisher(
+            bot_token=resolved_settings.telegram_bot_token,
+            chat_id=resolved_settings.telegram_chat_id,
+        )
 
     wechat_connector: PublisherConnector = mock_connector
     if resolved_settings.wechat_app_id and uses_selected_platform("wechat"):
@@ -108,12 +111,23 @@ def dispatch_due_publish_jobs(
 
         if not job.dispatch_key:
             job.dispatch_key = _build_dispatch_key(job)
-        submission = connector.submit(job, article, variant)
+        try:
+            submission = connector.submit(job, article, variant)
+        except Exception as exc:
+            jobs_failed += 1
+            job.last_provider_status = "submit_failed"
+            write_publish_job_result(
+                session,
+                job,
+                status=PublishJobStatus.FAILED,
+                error_message=str(exc) or "publish submit failed",
+            )
+            continue
         job.provider_job_id = submission.provider_job_id
         job.provider_payload = submission.provider_payload
         job.error_message = None
         job.failure_category = None
-        job.last_provider_status = "submitted"
+        job.last_provider_status = str(submission.provider_payload.get("provider_status") or "submitted")
         session.flush()
         jobs_dispatched += 1
 
