@@ -695,7 +695,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                     {metric.engagementImpressions > 0
                       ? `CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} clicks · ${metric.engagementInteractions} interactions`
                       : metric.lastError
-                        ? `Latest error: ${metric.lastError}`
+                        ? `Latest ${metric.lastFailureCategory ?? "platform"} issue: ${metric.lastError}`
                         : "No recent platform errors or engagement data yet."}
                   </p>
                   <div className="panel-link-row">
@@ -734,7 +734,13 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   </div>
                   <div className="ops-article-meta">
                     <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
-                    <span>{job.errorMessage ?? `Retries: ${job.retries}`}</span>
+                    <span>
+                      {job.failureCategory
+                        ? `${job.failureCategory} · ${job.errorMessage ?? "provider failure"}`
+                        : job.lastProviderStatus
+                          ? `${job.lastProviderStatus} · retries ${job.retries}`
+                          : job.errorMessage ?? `Retries: ${job.retries}`}
+                    </span>
                     <Link className="detail-link detail-link-soft" to={buildDetailPath("platform", job.platform, job.status === "failed")}>
                       Detail
                     </Link>

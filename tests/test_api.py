@@ -7,6 +7,7 @@ from fetchnews.main import create_app
 from fetchnews.models import Story, StoryStatus
 from fetchnews.schemas import RawIngestedItem, StoryCreatePayload
 from fetchnews.settings import Settings
+from fetchnews.sources.real_connectors import FetchedSourceBatch
 
 
 class StubConnector:
@@ -20,6 +21,14 @@ class StubConnector:
 class FailingConnector:
     def fetch(self, _source) -> list[RawIngestedItem]:
         raise RuntimeError("rate limit from source")
+
+
+class StubBatchConnector:
+    def __init__(self, batch: FetchedSourceBatch) -> None:
+        self.batch = batch
+
+    def fetch(self, _source) -> FetchedSourceBatch:
+        return self.batch
 
 
 def _github_item() -> RawIngestedItem:
@@ -680,6 +689,94 @@ def test_ops_summary_includes_publish_platform_metrics() -> None:
         assert platform_metrics["x"]["failed_jobs"] == 1
         assert platform_metrics["x"]["success_rate"] == 0.0
         assert platform_metrics["x"]["last_error"] == "platform rejected"
+
+
+def test_ops_summary_exposes_platform_failure_categories() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase07_ops_failure_category_api.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post(
+            "/stories",
+            json=_story_payload(
+                story_key="story-phase07-api-platform-category",
+                cluster_title="WeChat auth issue blocks one publish",
+                summary="One platform failure should expose a normalized category in ops.",
+                score=8.3,
+                tags=["publishing"],
+                source_links=["https://example.com/wechat-auth"],
+            ),
+        )
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post("/articles/generate/daily", json={"target_date": "2026-06-04"})
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat"], "scheduled_for": "2026-06-04T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        assert client.post(
+            f"/publish-jobs/{job_id}/result",
+            json={"status": "failed", "error_message": "wechat auth token expired"},
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        metrics = {metric["platform"]: metric for metric in summary_response.json()["publish_platform_metrics"]}
+
+        assert metrics["wechat"]["last_failure_category"] == "auth"
+
+
+def test_sources_endpoint_exposes_incremental_sync_state() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase07_sources_sync_state_api.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={
+            "github-openai-releases": StubBatchConnector(
+                FetchedSourceBatch(
+                    items=[
+                        RawIngestedItem(
+                            source_slug="github-openai-releases",
+                            external_id="release-api-1",
+                            title="OpenAI SDK release",
+                            url="https://github.com/openai/openai-python/releases/tag/v1.2.3",
+                            author="openai",
+                            published_at=datetime(2026, 6, 4, 9, 0, tzinfo=UTC),
+                            content="Release notes for the API contract test.",
+                            metadata={"snapshot": {"id": "release-api-1", "tag_name": "v1.2.3"}},
+                        )
+                    ],
+                    next_cursor="github-api-cursor-2",
+                )
+            )
+        },
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+        assert ingest_response.status_code == 200
+
+        sources_response = client.get("/sources")
+        assert sources_response.status_code == 200
+        sources_payload = {source["slug"]: source for source in sources_response.json()}
+
+        assert sources_payload["github-openai-releases"]["incremental_cursor"] == "github-api-cursor-2"
+        assert sources_payload["github-openai-releases"]["last_success_at"] is not None
 
 
 def test_ops_summary_includes_section_metrics_and_feedback_recommendations() -> None:

@@ -103,6 +103,13 @@ function formatGovernanceSummary(source: SourceSpec): string {
     parts.push(`Engagement ${engagementClicks}/${engagementImpressions} clicks (${Math.round(clickThroughRate * 100)}% CTR)`);
   }
 
+  if (source.incrementalCursor) {
+    parts.push(`Cursor ${source.incrementalCursor}`);
+  }
+  if (source.lastSuccessAt) {
+    parts.push(`Last success ${formatDateTime(source.lastSuccessAt)}`);
+  }
+
   return parts.join(" · ");
 }
 

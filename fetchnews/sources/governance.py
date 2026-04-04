@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fetchnews.models import ArticleDraft, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
+from fetchnews.models import ArticleDraft, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Source, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots
 from fetchnews.pipeline.sections import infer_sections_from_signals
 from fetchnews.schemas import SourceSpec
@@ -56,10 +56,15 @@ DEFAULT_SCORE_MULTIPLIER = 1.0
 
 def annotate_source_specs(session: Session, source_specs: list[SourceSpec]) -> list[SourceSpec]:
     feedback_by_slug = build_source_governance_feedback(session, source_specs)
+    persisted_sources = {
+        source.slug: source
+        for source in session.scalars(select(Source).where(Source.slug.in_([spec.slug for spec in source_specs]))).all()
+    }
     enriched_specs: list[SourceSpec] = []
 
     for spec in source_specs:
         feedback = feedback_by_slug[spec.slug]
+        persisted_source = persisted_sources.get(spec.slug)
         enriched_specs.append(
             spec.model_copy(
                 update={
@@ -67,6 +72,8 @@ def annotate_source_specs(session: Session, source_specs: list[SourceSpec]) -> l
                     "effective_score_multiplier": feedback.effective_score_multiplier,
                     "feedback_signals": feedback.feedback_signals(),
                     "governance_flags": feedback.governance_flags,
+                    "incremental_cursor": persisted_source.incremental_cursor if persisted_source is not None else None,
+                    "last_success_at": persisted_source.last_success_at if persisted_source is not None else None,
                 }
             )
         )
