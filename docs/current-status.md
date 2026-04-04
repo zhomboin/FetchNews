@@ -2,9 +2,9 @@
 
 ## 概览
 
-截至 2026-04-04，项目已经具备从来源采集、标准化、聚类、草稿生成、人工审核到发布回写和 ops 观测的内部闭环。
+截至 2026-04-04，项目已经具备从来源采集、标准化、聚类、草稿生成、人工审核，到发布回写和 ops 观测的完整内部闭环。
 
-当前 Phase 07 以独立开发分支推进，已经完成 Task 1 到 Task 4，重点从“内部可跑通”转向“真实外部能力接入”。
+当前 Phase 07 以独立开发分支推进，已完成 Task 1 到 Task 5。重点已经从“内部可跑通”推进到“真实外部能力接入 + 前后端健康状态可见”。
 
 ## 已完成
 
@@ -47,18 +47,24 @@
 - 成功采集后回写 `sources.incremental_cursor`、`sources.last_success_at`。
 - 原始快照统一写入 `raw_items.payload.snapshot`。
 
+### Task 5：API、ops 面板和前端映射
+
+- `/ops/summary` 暴露平台最近失败类别。
+- `/sources` 暴露来源同步游标和最近成功时间。
+- 前端 `api.ts` 完成 Phase 07 新字段的 snake_case 到 camelCase 映射。
+- ops dashboard、ops detail、ingestion 页面已展示平台失败类别、provider 状态和来源同步状态。
+
 ## 进行中
 
-- Phase 07 Task 5：补 API、ops 面板和前端字段映射。
 - Phase 06 余项收尾：编辑工作台 diff 可视化细节、历史详情页与前端测试环境收敛。
+- Phase 07 后续加固：真实平台限流、认证刷新、来源抓取异常恢复与告警细化。
 
 ## 待实现
 
-1. Phase 07 前端 ops 页面接线与来源状态展示。
-2. 更完整的真实平台限流、认证刷新与告警治理。
-3. 真实 LLM provider、embedding 去重与召回。
-4. 更完整的编辑协作治理和审计 UI。
-5. 生产化部署、监控、备份与 Runbook。
+1. 更完整的真实平台限流、认证刷新与告警治理。
+2. 真实 LLM provider、embedding 去重与召回。
+3. 更完整的编辑协作治理和审计 UI。
+4. 生产化部署、监控、备份与 Runbook。
 
 ## 备注
 

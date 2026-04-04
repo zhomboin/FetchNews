@@ -12,7 +12,7 @@
 | Task 2 | 首个真实发布平台闭环 | 已完成 |
 | Task 3 | 其余平台适配骨架与 ops 失败归因 | 已完成 |
 | Task 4 | 真实来源连接器和增量抓取 | 已完成 |
-| Task 5 | API、ops 面板和前端映射 | 待完成 |
+| Task 5 | API、ops 面板和前端映射 | 已完成 |
 
 ## 已完成内容
 
@@ -45,6 +45,13 @@
 - 采集成功后回写 `incremental_cursor` 与 `last_success_at`。
 - 原始快照统一进入 `raw_items.payload.snapshot`。
 
+### Task 5：API、ops 面板和前端映射
+
+- `/ops/summary` 已暴露 `last_failure_category`。
+- `/sources` 已暴露 `incremental_cursor`、`last_success_at`。
+- `web/src/lib/api.ts` 已补齐前端字段映射。
+- ops dashboard、ops detail、ingestion 页面已展示 Phase 07 的平台和来源健康状态。
+
 ## 当前验收状态
 
 ### 已满足
@@ -58,15 +65,18 @@
 - 发布失败后可幂等重试且不重复提交：
   - 后端测试已覆盖。
 - 平台失败归因进入 ops 汇总：
-  - 后端已完成。
+  - 已完成。
+- API 与前端已能消费并展示平台失败分类和来源同步状态：
+  - 已完成。
 
 ### 尚未满足
 
-- ops 面板前端展示和来源状态前端映射。
 - 更完整的外部认证刷新、平台限流和告警治理。
+- 把 `wechat / x` 从占位真实发布器升级为真实 API 实现。
+- 对真实连接器补更强的异常恢复和生产流量保护。
 
 ## 当前建议
 
-1. 先完成 Task 5，把后端字段接到 API 和前端。
-2. 再根据可用凭证决定是否把 `wechat / x` 从占位真实发布器升级为真实 API 实现。
+1. 先评估哪些真实平台和真实来源已经具备进入小规模生产流量的条件。
+2. 优先加固限流、认证和异常恢复，再扩大真实接入范围。
 3. 完成后再评估 Phase 08 的真实 LLM provider 接入。
