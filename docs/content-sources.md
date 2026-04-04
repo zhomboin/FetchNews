@@ -2,120 +2,70 @@
 
 ## 目标
 
-只接入对中文 AI 从业者真正有价值、且能够稳定获取的一手或高质量二手来源。优先保证质量和可追溯性，不优先追求“全网覆盖”。
+只接入对中文 AI 从业者真正有价值、且能够稳定获取的一手或高质量二手来源。优先保证质量、可追溯性和可治理性，不追求无限制全网覆盖。
 
-## P0 来源
+## 当前已实现来源
 
-### GitHub
+### P0
 
-- Trending 仓库
-- 指定组织或作者：
-  - `openai`
-  - `anthropics`
-  - `mistralai`
-  - `meta-llama`
-  - `microsoft`
-  - `google-deepmind`
-  - `huggingface`
-  - `langchain-ai`
-  - `vllm-project`
-- Release / Tag 更新
-- 高 star 新仓库搜索：
-  - `llm`
-  - `agent`
-  - `rag`
-  - `inference`
-  - `multimodal`
-  - `eval`
+#### GitHub
 
-### arXiv / 论文源
+- `github-trending`
+  - 状态：已实现
+  - 说明：基于 HTML 抓取趋势仓库。
+- `github-openai-releases`
+  - 状态：已实现
+  - 说明：Phase 07 新增，面向真实 release/tag 更新。
 
-- `cs.AI`
-- `cs.CL`
-- `cs.LG`
-- `cs.CV`
-- `cs.IR`
-- `stat.ML`
+#### arXiv / 论文源
 
-### 官方博客 / 产品更新
+- `arxiv-cs-ai`
+  - 状态：已实现
+  - 说明：基于 RSS。
 
-- OpenAI
-- Anthropic
-- Google DeepMind
-- Meta AI
-- Mistral
-- Cohere
-- Microsoft
-- AWS
-- NVIDIA
-- Hugging Face
-- Vercel AI
-- Replicate
-- Perplexity
-- xAI
+#### 官方博客 / RSS
 
-### X
+- `openai-blog`
+  - 状态：已实现
+  - 说明：基于 RSS。
 
-- 白名单账号时间线
-- 优先列表模式
-- 关键词仅作为辅助发现，不作为主来源
+#### X
 
-## P1 来源
+- `x-allowlist`
+  - 状态：占位实现
+  - 说明：当前仅支持白名单静态条目，不是实时 API 抓取。
 
-### 社区与聚合
+### P1
 
-- Hugging Face 热门模型、数据集、Spaces
-- Papers with Code
-- Reddit：
-  - `r/MachineLearning`
-  - `r/LocalLLaMA`
-  - `r/ArtificialInteligence`
-- Hacker News AI 相关贴子
-- Lobsters
-- Product Hunt AI 分类
+#### 聚合与社区来源
 
-## P2 来源
+- `hf-daily`
+  - 状态：已实现
+  - 说明：Phase 07 新增，支持真实连接器骨架和增量游标。
+- `paperswithcode-latest`
+  - 状态：已实现
+  - 说明：Phase 07 新增，支持真实连接器骨架和增量游标。
+- `reddit-ml`
+  - 状态：规划中
 
-### 中文转载与解读
+## 当前采集能力
 
-- 机器之心
-- 量子位
-- 36Kr AI
-- InfoQ 中文
-- 掘金 AI
-- 少数派
+- 连接器可按 `slug -> platform -> kind` 选择。
+- 真实连接器可返回 `items + next_cursor`。
+- 成功采集后回写 `sources.incremental_cursor` 和 `sources.last_success_at`。
+- 原始快照统一落到 `raw_items.payload.snapshot`。
 
-### 可选多媒体来源
+## 下一批优先接入
 
-- YouTube 指定频道字幕
-- 播客 RSS / show notes
+1. 扩展更多 GitHub 指定组织和 release 源。
+2. 扩展更多官方博客 RSS。
+3. 把 `x-allowlist` 从占位实现升级到真实 API 接入。
+4. 视质量和治理成本，再补 Reddit、Hacker News 等聚合来源。
 
 ## 来源治理原则
 
-- 一手来源优先于转载
-- 组织白名单优先于关键词泛抓
-- 官方博客优先于社区转述
-- 同一事件至少保留 1 个原始来源
-- 中文媒体主要用于补充背景，不作为唯一事实依据
-
-## 接入顺序建议
-
-### 第一批必须落地
-
-- GitHub
-- arXiv
-- 官方 RSS / 博客
-- X 白名单账号
-
-### 第二批扩展
-
-- Hugging Face
-- Papers with Code
-- Reddit
-- Hacker News
-
-### 第三批可选
-
-- 中文媒体
-- 播客
-- 视频字幕
+- 一手来源优先于转载。
+- 组织白名单优先于关键词泛抓。
+- 官方博客优先于社区转述。
+- 同一事件至少保留 1 个原始来源链接。
+- 中文媒体主要用于补背景，不作为唯一事实依据。
