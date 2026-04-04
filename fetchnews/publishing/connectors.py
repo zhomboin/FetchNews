@@ -28,6 +28,9 @@ class PublisherConnector(Protocol):
     def poll(self, job: PublishJob) -> PublishPollResult:
         ...
 
+    def handle_callback(self, job: PublishJob, payload: dict[str, object]) -> PublishPollResult:
+        ...
+
 
 class MockPublisherConnector:
     def __init__(self, completion_delay_seconds: int = 0) -> None:
@@ -75,4 +78,18 @@ class MockPublisherConnector:
             terminal=True,
             status=PublishJobStatus.PUBLISHED,
             external_id=provider_payload.get("external_id"),
+        )
+
+    def handle_callback(self, job: PublishJob, payload: dict[str, object]) -> PublishPollResult:
+        status = str(payload.get("status") or "")
+        if status == PublishJobStatus.PUBLISHED:
+            return PublishPollResult(
+                terminal=True,
+                status=PublishJobStatus.PUBLISHED,
+                external_id=str(payload.get("external_id") or job.external_id or ""),
+            )
+        return PublishPollResult(
+            terminal=True,
+            status=PublishJobStatus.FAILED,
+            error_message=str(payload.get("error_message") or "mock callback failure"),
         )

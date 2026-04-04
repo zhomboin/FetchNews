@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, PublishJob, PublishJobStatus
 from fetchnews.publishing.connectors import MockPublisherConnector, PublisherConnector
+from fetchnews.publishing.platform_errors import classify_publish_failure
+from fetchnews.publishing.real_publishers import RealTelegramPublisher
 from fetchnews.schemas import PublishDispatchResponse, PublishJobResponse, PublishPollResponse
 from fetchnews.settings import Settings
 
@@ -18,10 +20,15 @@ PublisherRegistry = dict[str, PublisherConnector]
 def build_default_publisher_registry(settings: Settings | None = None) -> PublisherRegistry:
     resolved_settings = settings or Settings()
     connector = MockPublisherConnector(completion_delay_seconds=resolved_settings.mock_publish_completion_seconds)
+    telegram_connector: PublisherConnector
+    if resolved_settings.publish_real_platform == "telegram" and resolved_settings.telegram_bot_token:
+        telegram_connector = RealTelegramPublisher(bot_token=resolved_settings.telegram_bot_token)
+    else:
+        telegram_connector = connector
     return {
         "wechat": connector,
         "x": connector,
-        "telegram": connector,
+        "telegram": telegram_connector,
     }
 
 
@@ -41,6 +48,7 @@ def create_publish_jobs(session: Session, article: ArticleDraft, platforms: list
         )
         session.add(job)
         session.flush()
+        job.dispatch_key = _build_dispatch_key(job)
         jobs.append(publish_job_to_response(job))
 
     article.status = ArticleStatus.SCHEDULED
@@ -86,10 +94,14 @@ def dispatch_due_publish_jobs(
             )
             continue
 
+        if not job.dispatch_key:
+            job.dispatch_key = _build_dispatch_key(job)
         submission = connector.submit(job, article, variant)
         job.provider_job_id = submission.provider_job_id
         job.provider_payload = submission.provider_payload
         job.error_message = None
+        job.failure_category = None
+        job.last_provider_status = "submitted"
         session.flush()
         jobs_dispatched += 1
 
@@ -151,6 +163,39 @@ def poll_publish_jobs(
     )
 
 
+def handle_publish_callback(
+    session: Session,
+    platform: str,
+    payload: dict[str, object],
+    publisher_registry: PublisherRegistry,
+) -> PublishJobResponse:
+    connector = publisher_registry.get(platform)
+    if connector is None:
+        raise ValueError("publisher connector not configured")
+
+    provider_job_id = str(payload.get("provider_job_id") or "").strip()
+    if not provider_job_id:
+        raise ValueError("provider_job_id is required")
+
+    job = session.scalar(select(PublishJob).where(PublishJob.provider_job_id == provider_job_id))
+    if job is None:
+        raise ValueError("publish job not found")
+
+    callback_result = connector.handle_callback(job, payload)
+    job.last_provider_status = str(payload.get("status") or job.last_provider_status or "")
+    if not callback_result.terminal:
+        session.flush()
+        return publish_job_to_response(job)
+
+    return write_publish_job_result(
+        session,
+        job,
+        status=callback_result.status or PublishJobStatus.FAILED,
+        external_id=callback_result.external_id,
+        error_message=callback_result.error_message,
+    )
+
+
 def write_publish_job_result(
     session: Session,
     job: PublishJob,
@@ -162,8 +207,10 @@ def write_publish_job_result(
     if status == PublishJobStatus.PUBLISHED:
         job.external_id = external_id
         job.error_message = None
+        job.failure_category = None
     else:
         job.error_message = error_message or "unknown publish failure"
+        job.failure_category = classify_publish_failure(job.error_message)
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
@@ -175,6 +222,8 @@ def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     job.external_id = None
     job.error_message = None
     job.provider_job_id = None
+    job.failure_category = None
+    job.last_provider_status = None
     job.provider_payload = {}
     _sync_article_status(session, job.article_id)
     session.flush()
@@ -239,6 +288,10 @@ def _resolve_dispatch_error(
     if connector is None:
         return "publisher connector not configured"
     return "unknown dispatch error"
+
+
+def _build_dispatch_key(job: PublishJob) -> str:
+    return f"dispatch-{job.platform}-{job.id}"
 
 
 def _sync_article_status(session: Session, article_id: int) -> None:

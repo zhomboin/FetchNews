@@ -42,6 +42,7 @@ from fetchnews.publishing.service import (
     build_default_publisher_registry,
     create_publish_jobs,
     dispatch_due_publish_jobs,
+    handle_publish_callback,
     poll_publish_jobs,
     publish_job_to_response,
     retry_publish_job,
@@ -645,6 +646,24 @@ def create_app(
             resource_type="publish_job",
             detail=result.model_dump(),
         )
+        db.commit()
+        return result
+
+    @app.post("/publish-jobs/callback/{platform}", response_model=PublishJobResponse)
+    def handle_job_callback(
+        platform: str,
+        payload: dict[str, object],
+        db: Session = Depends(get_db),
+    ) -> PublishJobResponse:
+        try:
+            result = handle_publish_callback(
+                db,
+                platform=platform,
+                payload=payload,
+                publisher_registry=state.publisher_registry,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         db.commit()
         return result
 
