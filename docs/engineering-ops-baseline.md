@@ -1,110 +1,141 @@
-# 宸ョ▼涓庤繍缁村熀绾?
-鏈枃妗ｆ€荤粨褰撳墠浠撳簱宸茬粡鍏峰鐨勫伐绋嬩笌杩愮淮琛ラ綈鑳藉姏銆?
-## 鏈疆鍩虹嚎鍖呭惈鐨勫唴瀹?
-### Alembic 杩佺Щ
+# 工程与运维基线
 
-宸插疄鐜帮細
+本文档总结当前仓库已经具备的工程与运维能力，以及仍需继续补齐的部分。
 
-- Alembic 閰嶇疆涓庣幆澧冩枃浠?- 瀵瑰簲褰撳墠 SQLAlchemy 妯″瀷闆嗙殑棣栦釜 schema migration
-- 鏄惧紡鍖哄垎 `SQLite` 娴嬭瘯寮曞涓?PostgreSQL 杩佺Щ娴佺▼
+## 本轮基线包含的内容
 
-鍏抽敭鏂囦欢锛?
-- [alembic.ini](/D:/Code/Project/FetchNews/alembic.ini)
-- [alembic/env.py](/D:/Code/Project/FetchNews/alembic/env.py)
-- [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/alembic/versions/20260401_0001_initial_schema.py)
-- [fetchnews/db/session.py](/D:/Code/Project/FetchNews/fetchnews/db/session.py)
+### Alembic 迁移
 
-鏈疆 SQL 杈圭晫锛?
-- 鎵嬪姩 SQL 浠呴檺 PostgreSQL 瑙掕壊銆佹暟鎹簱涓?schema 鏉冮檺鍒濆鍖?- 涓氬姟琛ㄧ粨鏋勭粺涓€閫氳繃 Alembic 鍒涘缓锛屼笉鎵嬪伐绮樿创 DDL 鍒?`psql`
-- 鍏蜂綋 SQL 瑙?[docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
+已实现：
 
-### PostgreSQL 姝ｅ紡鍖?
-宸插疄鐜帮細
+- Alembic 配置与环境文件
+- 对应当前 SQLAlchemy 模型集的 schema migration
+- 显式区分 `SQLite` 测试引导与 `PostgreSQL` 迁移流程
 
-- 瀹夸富鏈?PostgreSQL 浣滀负鎺ㄨ崘鏈湴鏁版嵁搴撹矾寰?- Compose 涓嶅啀榛樿鎷夎捣 PostgreSQL 瀹瑰櫒
-- 鏄惧紡鏀寔 `APP_DATABASE_BOOTSTRAP_MODE`
-- 涓?Compose 娴佺▼鎻愪緵 `migrate` 鏈嶅姟
+关键文件：
 
-鍏抽敭鏂囦欢锛?
-- [docker-compose.yml](/D:/Code/Project/FetchNews/docker-compose.yml)
-- [.env.example](/D:/Code/Project/FetchNews/.env.example)
+- [alembic.ini](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/alembic.ini)
+- [alembic/env.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/alembic/env.py)
+- [alembic/versions/20260401_0001_initial_schema.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/alembic/versions/20260401_0001_initial_schema.py)
+- [alembic/versions/20260404_0004_phase07_contract_fields.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/alembic/versions/20260404_0004_phase07_contract_fields.py)
+- [fetchnews/db/session.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/db/session.py)
+
+### PostgreSQL 正式化
+
+已实现：
+
+- 宿主机 `PostgreSQL` 作为推荐本地数据库路径
+- `docker compose` 不再默认拉起 `PostgreSQL` 容器
+- 显式支持 `APP_DATABASE_BOOTSTRAP_MODE`
+- Compose 流程提供 `migrate` 服务
+
+关键文件：
+
+- [docker-compose.yml](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/docker-compose.yml)
+- [.env.example](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/.env.example)
 - [docs/postgresql-local-setup.md](/D:/Code/Project/FetchNews/docs/postgresql-local-setup.md)
 
-### 鐧诲綍銆佹潈闄愪笌瀹¤
+### 登录、权限与审计
 
-宸插疄鐜帮細
+已实现：
 
-- 閴存潈寮€鍏虫帴鍙ｏ細`GET /auth/config`
-- 鐧诲綍鎺ュ彛锛歚POST /auth/login`
-- 褰撳墠鐢ㄦ埛鎺ュ彛锛歚GET /auth/me`
-- 鍙椾繚鎶?API 鐨勮鑹叉潈闄愭帶鍒?- 閫氳繃鐜鍙橀噺寮曞鍒涘缓绠＄悊鍛樿处鍙?- 瀵瑰叧閿啓鎿嶄綔鎸佷箙鍖栧璁℃棩蹇?
-褰撳墠瑙掕壊锛?
-- `viewer`锛氬彧璇?API 璁块棶
-- `editor`锛氬鏍搞€佺敓鎴愩€佸彂甯冨拰鎵嬪姩杩愮淮鎿嶄綔
-- `admin`锛氬畬鏁存潈闄愶紝褰撳墠鐢ㄤ簬 bootstrap 鐧诲綍
+- 鉴权开关接口：`GET /auth/config`
+- 登录接口：`POST /auth/login`
+- 当前用户接口：`GET /auth/me`
+- 受保护 API 的角色权限控制
+- bootstrap 管理员账户初始化
+- 关键写操作审计日志
+- Phase 07 callback 写回的审计事件 `publish.callback`
 
-鍏抽敭鏂囦欢锛?
-- [fetchnews/core/security.py](/D:/Code/Project/FetchNews/fetchnews/core/security.py)
-- [fetchnews/core/audit.py](/D:/Code/Project/FetchNews/fetchnews/core/audit.py)
-- [fetchnews/main.py](/D:/Code/Project/FetchNews/fetchnews/main.py)
-- [fetchnews/models.py](/D:/Code/Project/FetchNews/fetchnews/models.py)
+当前角色：
 
-### 鍛婅涓庣洃鎺?
-宸插疄鐜帮細
+- `viewer`：只读 API 访问
+- `editor`：审核、生成、发布和手动运维操作
+- `admin`：完整权限，当前主要用于 bootstrap 登录
 
-- ops summary 涓殑鍛婅
-- 鏈€杩戝け璐ュ垎缁?- 骞冲彴鎸囨爣
-- 鏍忕洰瀹℃牳鎸囨爣
-- 寤鸿鍒楄〃
-- 鍓嶇 ops 鍛婅鍗＄墖涓?drill-down 鏀寔
+关键文件：
 
-鍏抽敭鏂囦欢锛?
-- [fetchnews/ops/service.py](/D:/Code/Project/FetchNews/fetchnews/ops/service.py)
-- [web/src/features/ops/ops-dashboard-page.tsx](/D:/Code/Project/FetchNews/web/src/features/ops/ops-dashboard-page.tsx)
+- [fetchnews/core/security.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/core/security.py)
+- [fetchnews/core/audit.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/core/audit.py)
+- [fetchnews/main.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/main.py)
+- [fetchnews/models.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/models.py)
 
-### 鍓嶇娴嬭瘯鍩虹嚎
+### Phase 07 配置基线
 
-宸插疄鐜帮細
+已实现：
 
-- `Vitest` 娴嬭瘯杩愯鍣?- `Testing Library` 娴嬭瘯鐜
-- API 閴存潈澶存祴璇?- 鐧诲綍琛ㄥ崟鎻愪氦娴佺▼娴嬭瘯
+- `APP_PUBLISH_REAL_PLATFORM`
+- `APP_PUBLISH_CALLBACK_SECRET`
+- `APP_TELEGRAM_BOT_TOKEN`
+- `APP_X_BEARER_TOKEN`
+- `APP_WECHAT_APP_ID`
 
-鍛戒护锛?
+约束：
+
+- `development` / `test` 环境默认 callback secret 为 `fetchnews-dev-callback-secret`
+- 非 `development/test` 环境必须显式设置 `APP_PUBLISH_CALLBACK_SECRET`
+- 如果未设置，应用在启动阶段直接失败
+
+### 告警与监控
+
+已实现：
+
+- `ops summary` 中的告警摘要
+- 最近失败分组
+- 平台指标
+- 栏目审核指标
+- 建议列表
+- 前端 `ops` 仪表盘的 drill-down 展示
+
+关键文件：
+
+- [fetchnews/ops/service.py](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/fetchnews/ops/service.py)
+- [web/src/features/ops/ops-dashboard-page.tsx](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/web/src/features/ops/ops-dashboard-page.tsx)
+
+### 前端测试基线
+
+已实现：
+
+- `Vitest` 测试运行器
+- `Testing Library` 测试环境
+- API 映射测试
+- 登录表单提交流程测试
+
+命令：
+
 ```bash
 cd web
 npm run test:run
 ```
 
-鍏抽敭鏂囦欢锛?
-- [web/package.json](/D:/Code/Project/FetchNews/web/package.json)
-- [web/vite.config.ts](/D:/Code/Project/FetchNews/web/vite.config.ts)
-- [web/src/lib/api.test.ts](/D:/Code/Project/FetchNews/web/src/lib/api.test.ts)
-- [web/src/features/auth/login-page.test.tsx](/D:/Code/Project/FetchNews/web/src/features/auth/login-page.test.tsx)
+关键文件：
 
-## 浠嶅緟琛ラ綈鐨勮兘鍔?
-灏氭湭瀹屽叏瀹屾垚锛?
-- 鐢ㄦ埛绠＄悊 UI 涓庡瘑鐮侀噸缃祦绋?- 瀹¤鏃ュ織鏌ョ湅 UI 涓庡鍑烘帴鍙?- 閭欢銆乄ebhook銆丼lack 绛夊閮ㄥ憡璀﹂€氶亾
-- `Prometheus / Grafana` 鎴?`Sentry` 绛夌敓浜х洃鎺ф爤
-- 闀跨敓鍛藉懆鏈?PostgreSQL 鐜鐨勫垎闃舵杩佺Щ绛栫暐
+- [web/package.json](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/web/package.json)
+- [web/vite.config.ts](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/web/vite.config.ts)
+- [web/src/lib/api.test.ts](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/web/src/lib/api.test.ts)
+- [web/src/features/auth/login-page.test.tsx](/D:/Code/Project/FetchNews/.worktrees/phase-07-task-1/web/src/features/auth/login-page.test.tsx)
 
-## 鏂囨。璇█绾︽潫
+## 仍待补齐的能力
 
-- 宸ョ▼涓庤繍缁磋鏄庣粺涓€浣跨敤涓枃鎾板啓
-- 淇濈暀鑻辨枃宸ュ叿鍚嶆椂闇€閰嶅悎涓枃璇箟璇存槑
-## 2026-04-03 迁移增量
+尚未完全完成：
 
-工程基线已增加编辑工作台的数据库演进能力，当前 migration 集包括：
+- 用户管理 UI 与密码重置流程
+- 审计日志查看 UI 与导出接口
+- 邮件、Webhook、Slack 等外部告警通道
+- `Prometheus / Grafana` 或 `Sentry` 等生产监控栈
+- 更完整的真实平台限流、认证刷新与告警治理
+- `wechat / x` 的真实 API 实现
 
-- `20260401_0001_initial_schema.py`
-- `20260403_0002_editorial_workbench.py`
-- `20260403_0003_article_draft_templates.py`
+## 2026-04-04 Phase 07 增量
 
-新增覆盖的结构：
+本轮新增的工程 / 运维面能力：
 
-- digest 模板表
-- 稿件 revision 表
-- 稿件 block 表
-- 人工干预动作表
-- 稿件模板关联字段
+- 发布 callback 入口的 secret 校验
+- 发布 callback 的审计落库
+- 真实来源连接器的增量游标字段与回写
+- 前后端对平台失败类别和来源同步状态的可视化
 
-本轮没有新增需要人工执行的业务 SQL，数据库层面的新增动作继续统一走 Alembic。
+## 文档语言约束
+
+- 工程与运维说明统一使用中文撰写
+- 保留英文工具名时，需要放在中文语义中解释清楚

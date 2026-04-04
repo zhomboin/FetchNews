@@ -671,6 +671,21 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record_audit_log(
+            db,
+            actor=None,
+            action="publish.callback",
+            resource_type="publish_job",
+            resource_id=result.id,
+            detail={
+                "platform": platform,
+                "provider_job_id": payload.get("provider_job_id"),
+                "provider_status": payload.get("status"),
+                "job_status": result.status,
+                "external_id": result.external_id,
+                "failure_category": result.failure_category,
+            },
+        )
         db.commit()
         return result
 

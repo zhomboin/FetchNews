@@ -238,6 +238,18 @@ def test_publish_callback_marks_job_published_without_duplicate_submit() -> None
         assert publisher.submit_calls == 1
         assert publisher.callback_calls == 1
 
+        with app.state.container.session_factory() as session:
+            audit_log_model = app.state.container.model_registry["audit_log"]
+            callback_logs = [
+                record
+                for record in session.scalars(select(audit_log_model).order_by(audit_log_model.id.asc())).all()
+                if record.action == "publish.callback"
+            ]
+            assert len(callback_logs) == 1
+            assert callback_logs[0].resource_type == "publish_job"
+            assert callback_logs[0].detail["platform"] == "telegram"
+            assert callback_logs[0].detail["provider_status"] == "published"
+
 
 def test_publish_callback_requires_callback_secret() -> None:
     settings = Settings(
