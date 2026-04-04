@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
+from fetchnews.publishing.platform_errors import classify_publish_failure
 from fetchnews.schemas import (
     AlertRecordResponse,
     FailureGroupResponse,
@@ -207,7 +208,7 @@ def _build_failure_groups(session: Session) -> list[FailureGroupResponse]:
         .limit(20)
     ).all()
     for job in recent_failed_jobs:
-        reason = (job.error_message or "unknown publish failure").strip()
+        reason = (job.failure_category or classify_publish_failure(job.error_message or "unknown publish failure")).strip()
         key = ("publish", reason)
         entry = grouped.setdefault(
             key,
@@ -283,6 +284,7 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
                 "engagement_clicks": 0,
                 "engagement_interactions": 0,
                 "last_error": None,
+                "last_failure_category": None,
             },
         )
         entry["total_jobs"] = int(entry["total_jobs"]) + 1
@@ -294,6 +296,10 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
             entry["failed_jobs"] = int(entry["failed_jobs"]) + 1
             if entry["last_error"] is None and job.error_message:
                 entry["last_error"] = job.error_message
+            if entry["last_failure_category"] is None:
+                entry["last_failure_category"] = (
+                    job.failure_category or classify_publish_failure(job.error_message or "unknown publish failure")
+                )
 
         metrics = job.performance_metrics or {}
         entry["engagement_impressions"] = int(entry["engagement_impressions"]) + _read_metric(metrics, "impressions")
@@ -324,6 +330,9 @@ def _build_publish_platform_metrics(session: Session) -> list[PublishPlatformMet
                 click_through_rate=(clicks / impressions) if impressions else 0.0,
                 interaction_rate=(interactions / impressions) if impressions else 0.0,
                 last_error=str(entry["last_error"]) if entry["last_error"] is not None else None,
+                last_failure_category=(
+                    str(entry["last_failure_category"]) if entry["last_failure_category"] is not None else None
+                ),
             )
         )
     return metrics

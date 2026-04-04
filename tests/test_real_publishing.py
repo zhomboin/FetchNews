@@ -1,13 +1,20 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import select
 
 from fetchnews.main import create_app
 from fetchnews.models import PublishJob, PublishJobStatus, Source, StoryStatus
 from fetchnews.publishing.connectors import PublishPollResult, PublishSubmission
-from fetchnews.publishing.service import build_default_publisher_registry, dispatch_due_publish_jobs, publish_job_to_response, retry_publish_job
-from fetchnews.publishing.real_publishers import RealTelegramPublisher
+from fetchnews.publishing.service import (
+    build_default_publisher_registry,
+    dispatch_due_publish_jobs,
+    publish_job_to_response,
+    retry_publish_job,
+    write_publish_job_result,
+)
+from fetchnews.publishing.real_publishers import RealTelegramPublisher, RealWeChatPublisher, RealXPublisher
 from fetchnews.schemas import RawIngestedItem, StoryCreatePayload
 from fetchnews.settings import Settings
 
@@ -238,3 +245,66 @@ def test_registry_uses_real_telegram_publisher_when_configured() -> None:
     )
 
     assert isinstance(registry["telegram"], RealTelegramPublisher)
+
+
+def test_auth_backed_platforms_use_placeholder_real_publishers_when_selected() -> None:
+    wechat_registry = build_default_publisher_registry(
+        Settings(
+            publish_real_platform="wechat",
+            wechat_app_id="wechat-app-id",
+        )
+    )
+    x_registry = build_default_publisher_registry(
+        Settings(
+            publish_real_platform="x",
+            x_bearer_token="x-token",
+        )
+    )
+
+    assert isinstance(wechat_registry["wechat"], RealWeChatPublisher)
+    assert isinstance(x_registry["x"], RealXPublisher)
+
+
+@pytest.mark.parametrize(
+    ("error_message", "expected_category"),
+    [
+        ("platform rate limit exceeded", "rate_limit"),
+        ("content rejected by moderation", "moderation"),
+        ("wechat auth token expired", "auth"),
+    ],
+    ids=["rate_limit", "moderation", "auth"],
+)
+def test_write_publish_job_result_classifies_platform_failure_categories(
+    error_message: str,
+    expected_category: str,
+) -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_failure_categories.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key=f"phase07-{expected_category}", target_date="2026-04-06")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": "2026-04-06T10:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        with app.state.container.session_factory() as session:
+            job = session.get(PublishJob, job_id)
+            assert job is not None
+            write_publish_job_result(
+                session,
+                job,
+                status=PublishJobStatus.FAILED,
+                error_message=error_message,
+            )
+            session.commit()
+
+            failed_job = session.get(PublishJob, job_id)
+            assert failed_job is not None
+            assert failed_job.failure_category == expected_category

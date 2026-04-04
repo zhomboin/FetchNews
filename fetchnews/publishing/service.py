@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from fetchnews.models import ArticleDraft, ArticleStatus, PostVariant, PublishJob, PublishJobStatus
 from fetchnews.publishing.connectors import MockPublisherConnector, PublisherConnector
 from fetchnews.publishing.platform_errors import classify_publish_failure
-from fetchnews.publishing.real_publishers import RealTelegramPublisher
+from fetchnews.publishing.real_publishers import RealTelegramPublisher, RealWeChatPublisher, RealXPublisher
 from fetchnews.schemas import PublishDispatchResponse, PublishJobResponse, PublishPollResponse
 from fetchnews.settings import Settings
 
@@ -19,15 +19,27 @@ PublisherRegistry = dict[str, PublisherConnector]
 
 def build_default_publisher_registry(settings: Settings | None = None) -> PublisherRegistry:
     resolved_settings = settings or Settings()
-    connector = MockPublisherConnector(completion_delay_seconds=resolved_settings.mock_publish_completion_seconds)
-    telegram_connector: PublisherConnector
-    if resolved_settings.publish_real_platform == "telegram" and resolved_settings.telegram_bot_token:
+    mock_connector = MockPublisherConnector(completion_delay_seconds=resolved_settings.mock_publish_completion_seconds)
+    selected_platform = resolved_settings.publish_real_platform
+
+    def uses_selected_platform(platform: str) -> bool:
+        return selected_platform in (None, "", platform)
+
+    telegram_connector: PublisherConnector = mock_connector
+    if resolved_settings.telegram_bot_token and uses_selected_platform("telegram"):
         telegram_connector = RealTelegramPublisher(bot_token=resolved_settings.telegram_bot_token)
-    else:
-        telegram_connector = connector
+
+    wechat_connector: PublisherConnector = mock_connector
+    if resolved_settings.wechat_app_id and uses_selected_platform("wechat"):
+        wechat_connector = RealWeChatPublisher(app_id=resolved_settings.wechat_app_id)
+
+    x_connector: PublisherConnector = mock_connector
+    if resolved_settings.x_bearer_token and uses_selected_platform("x"):
+        x_connector = RealXPublisher(bearer_token=resolved_settings.x_bearer_token)
+
     return {
-        "wechat": connector,
-        "x": connector,
+        "wechat": wechat_connector,
+        "x": x_connector,
         "telegram": telegram_connector,
     }
 

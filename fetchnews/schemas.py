@@ -392,6 +392,7 @@ class PublishPlatformMetricResponse(BaseModel):
     click_through_rate: float = 0.0
     interaction_rate: float = 0.0
     last_error: str | None = None
+    last_failure_category: str | None = None
 
 
 class SectionReviewMetricResponse(BaseModel):

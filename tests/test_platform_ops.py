@@ -168,6 +168,64 @@ def test_ops_summary_exposes_alerts_for_failed_runs_and_publish_jobs() -> None:
         assert {"ingest", "publish"}.issubset(alert_categories)
 
 
+def test_ops_summary_groups_publish_failures_by_platform_and_category() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_ops_publish_failure_groups.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        )
+    )
+
+    with TestClient(app) as client:
+        story_response = client.post("/stories", json=_story_payload())
+        assert story_response.status_code == 201
+        story_id = story_response.json()["id"]
+        assert client.post(f"/stories/{story_id}/approve").status_code == 200
+
+        article_response = client.post("/articles/generate/daily", json={"target_date": "2026-06-03"})
+        assert article_response.status_code == 200
+        article_id = article_response.json()["id"]
+
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["wechat", "x", "telegram"], "scheduled_for": "2026-06-03T18:00:00Z"},
+        )
+        assert publish_response.status_code == 200
+        jobs_by_platform = {job["platform"]: job["id"] for job in publish_response.json()["jobs"]}
+
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['wechat']}/result",
+            json={"status": "failed", "error_message": "wechat auth token expired"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['x']}/result",
+            json={"status": "failed", "error_message": "x credential missing"},
+        ).status_code == 200
+        assert client.post(
+            f"/publish-jobs/{jobs_by_platform['telegram']}/result",
+            json={"status": "failed", "error_message": "platform rejected by moderation"},
+        ).status_code == 200
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        payload = summary_response.json()
+
+        publish_groups = [group for group in payload["recent_failure_groups"] if group["category"] == "publish"]
+        assert publish_groups[0]["reason"] == "auth"
+        assert publish_groups[0]["count"] == 2
+        assert publish_groups[0]["targets"] == ["wechat", "x"]
+
+        moderation_group = next(group for group in publish_groups if group["reason"] == "moderation")
+        assert moderation_group["count"] == 1
+        assert moderation_group["targets"] == ["telegram"]
+
+        metrics_by_platform = {metric["platform"]: metric for metric in payload["publish_platform_metrics"]}
+        assert metrics_by_platform["wechat"]["last_failure_category"] == "auth"
+        assert metrics_by_platform["x"]["last_failure_category"] == "auth"
+        assert metrics_by_platform["telegram"]["last_failure_category"] == "moderation"
+
+
 def test_postgres_bootstrap_mode_skip_does_not_create_tables() -> None:
     engine, _factory = create_engine_and_factory("sqlite:///./test_bootstrap_skip.db")
 

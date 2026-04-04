@@ -546,13 +546,13 @@ def test_ops_summary_includes_failure_groups_and_retry_suggestions() -> None:
         publish_group = next(group for group in failure_groups if group["category"] == "publish")
         ingest_group = next(group for group in failure_groups if group["category"] == "ingest")
 
-        assert publish_group["reason"] == "platform rejected"
+        assert publish_group["reason"] == "moderation"
         assert publish_group["count"] == 1
-        assert publish_group["suggestion"]
+        assert "moderation policy" in publish_group["suggestion"]
 
         assert ingest_group["reason"] == "rate limit from source"
         assert ingest_group["count"] == 1
-        assert ingest_group["suggestion"]
+        assert "Reduce ingest frequency" in ingest_group["suggestion"]
 
 
 def test_generate_weekly_and_monthly_digests_can_coexist_with_daily() -> None:
