@@ -688,6 +688,7 @@ def test_env_example_includes_phase07_hardening_runtime_variables() -> None:
     assert "APP_SOURCE_FAILURE_ALERT_THRESHOLD=" in env_example
     assert "APP_GITHUB_TOKEN=" in env_example
     assert "\nGITHUB_TOKEN=" not in env_example
+    assert "WECHAT_APP_SECRET=" not in env_example
 
 
 def test_real_telegram_publisher_poll_fails_after_deadline_without_callback() -> None:

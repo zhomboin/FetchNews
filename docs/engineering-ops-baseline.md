@@ -74,6 +74,7 @@
 
 - `APP_PUBLISH_REAL_PLATFORM`
 - `APP_PUBLISH_CALLBACK_SECRET`
+- `APP_GITHUB_TOKEN`
 - `APP_TELEGRAM_BOT_TOKEN`
 - `APP_TELEGRAM_CHAT_ID`
 - `APP_X_BEARER_TOKEN`
@@ -87,6 +88,7 @@
 - `development` / `test` 环境默认 callback secret 为 `fetchnews-dev-callback-secret`
 - 非 `development/test` 环境必须显式设置 `APP_PUBLISH_CALLBACK_SECRET`
 - 如果未设置，应用在启动阶段直接失败
+- 如果启用 `github-openai-releases` 等 GitHub API 来源，必须显式设置 `APP_GITHUB_TOKEN`
 
 ### 发布基线
 

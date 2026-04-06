@@ -69,6 +69,12 @@ APP_TELEGRAM_BOT_TOKEN=replace-with-your-telegram-token
 APP_TELEGRAM_CHAT_ID=-1001234567890
 ```
 
+如果要让推荐的小流量真实来源 `github-openai-releases` 走带认证的 GitHub API，还需要补：
+
+```env
+APP_GITHUB_TOKEN=replace-with-your-github-token
+```
+
 如果只想验证其他平台骨架，可切换到：
 
 ```env
@@ -256,17 +262,18 @@ X-FetchNews-Callback-Secret: fetchnews-dev-callback-secret
 
 1. 已显式配置 `APP_PUBLISH_CALLBACK_SECRET`
 2. 已配置真实平台凭证，且只启用一个真实发布平台
-3. 已验证 `dispatch -> callback/poll -> result writeback -> retry` 全链路
-4. 已验证平台冷却窗口限流在失败后会阻断继续提交
-5. 已验证来源抓取失败时不会覆盖旧 `incremental_cursor`
-6. 已确认 `/ops/summary` 可以看到 `source` 告警和平台失败分类
+3. 如果启用 `github-openai-releases`，已显式配置 `APP_GITHUB_TOKEN`
+4. 已验证 `dispatch -> callback/poll -> result writeback -> retry` 全链路
+5. 已验证平台冷却窗口限流在失败后会阻断继续提交
+6. 已验证来源抓取失败时不会覆盖旧 `incremental_cursor`
+7. 已确认 `/ops/summary` 可以看到 `source` 告警和平台失败分类
 
 ## 小流量验收清单
 
 建议按以下顺序逐步打开真实流量：
 
 1. 仅启用 `telegram`
-2. 仅启用 `github-openai-releases`
+2. 仅启用 `github-openai-releases`，并配置 `APP_GITHUB_TOKEN`
 3. 保持 `APP_SOURCE_RETRY_ATTEMPTS=2`
 4. 保持 `APP_PUBLISH_RATE_LIMIT_WINDOW_SECONDS=300`
 5. 连续运行 24 小时，观察：
