@@ -6,33 +6,36 @@
 
 ## 当前阶段
 
-- Phase 00 - Phase 06：基础能力已具备。
-- Phase 07：Task 1 到 Task 5 已合并到主线，当前进入加固与生产就绪。
-- Phase 08 - Phase 10：后续阶段。
+- Phase 00 - Phase 06：基础能力已具备
+- Phase 07 主线基线：Task 1-5 已合并到主线
+- Phase 07 加固与生产就绪：当前分支已完成 Task 1-5
+- Phase 08 - Phase 10：后续阶段
 
 ## Phase 07 当前进度
 
-### 已合并
+### 主线已合并
 
-1. 数据契约和配置基线。
-2. `telegram` 真实发布闭环骨架。
-3. `wechat / x` 占位真实发布器和 ops 失败归因。
-4. `GitHub Releases / Hugging Face / Papers with Code` 真实连接器骨架与增量抓取。
-5. API、ops 页面和 ingestion 页面接入 Phase 07 健康字段。
+1. 数据契约和配置基线
+2. `telegram` 真实发布骨架与 callback 闭环
+3. `wechat / x` 占位真实发布器和 ops 失败归因
+4. 真实来源连接器与增量抓取
+5. API、ops 页面和 ingestion 页面接入健康字段
 
-### 下一步
+### 当前分支已加固完成
 
-1. 将 `telegram` 从骨架提升到真实发布 MVP。
-2. 对真实来源连接器补认证、分页、异常恢复和 cursor 保护。
-3. 补平台与来源级限流、告警和 Runbook。
-4. 在此基础上再进入 Phase 08 的真实 LLM provider 和 embedding 能力。
+1. `telegram` 真实发布 MVP
+2. 真实来源连接器认证、分页与回退
+3. 平台冷却窗口限流
+4. 来源最小重试
+5. source 重复失败告警
+6. 小流量运行 Runbook
 
 ## 推荐推进顺序
 
-1. 先完成并加固 Phase 07。
-2. 再进入 Phase 08，接真实 LLM provider 和 embedding 能力。
-3. 然后完成 Phase 09 的编辑协作治理。
-4. 最后收敛到 Phase 10 的生产化部署与运维。
+1. 先完成 Phase 07 加固收尾并观察小流量运行结果
+2. 再进入 Phase 08，接真实 LLM provider 和 embedding 能力
+3. 然后完成 Phase 09 的编辑协作治理
+4. 最后收敛到 Phase 10 的生产化部署与运维
 
 ## 路线分层
 
@@ -49,21 +52,31 @@
 
 ### 层 2：当前已接上的真实外部能力
 
-- 真实发布平台骨架
-- 真实来源连接器骨架
+- `telegram` 真实发布 MVP
+- `GitHub Releases / Hugging Face / Papers with Code` 真实来源连接器
 - 幂等重试与失败归因
-- 平台和来源级 ops 指标
+- 平台与来源级 ops 信号
 - 前端健康状态展示
 
 ### 层 3：后续能力
 
+- `wechat / x` 真实 API 接入
+- 更强的限流和认证刷新
 - 真实 LLM provider
 - embedding 去重和召回
 - 编辑协作治理
 - 生产环境部署和监控
 
+## 当前建议
+
+当前不建议直接进入 Phase 08。更稳妥的顺序是：
+
+1. 先用 `telegram + github-openai-releases` 做小流量运行
+2. 观察 24 小时后，再加入 `hf-daily` 与 `paperswithcode-latest`
+3. 稳定后再评估是否进入真实 LLM provider 接入
+
 ## 约束
 
-- 每个阶段都必须能独立验收。
-- 涉及模型字段或表结构变化时，先有迁移，再有实现和文档。
-- 真实外部接入优先做小范围闭环，不一次性全量打开。
+- 每个阶段都必须能独立验收
+- 涉及模型字段或表结构变化时，先有迁移，再有实现和文档
+- 真实外部接入优先做小范围闭环，不一次性全量打开
