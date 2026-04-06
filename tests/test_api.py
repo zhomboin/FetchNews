@@ -23,6 +23,18 @@ class FailingConnector:
         raise RuntimeError("rate limit from source")
 
 
+class FlakyConnector:
+    def __init__(self, items: list[RawIngestedItem]) -> None:
+        self.items = items
+        self.calls = 0
+
+    def fetch(self, _source) -> list[RawIngestedItem]:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("feed timeout")
+        return self.items
+
+
 class StubBatchConnector:
     def __init__(self, batch: FetchedSourceBatch) -> None:
         self.batch = batch
@@ -343,6 +355,30 @@ def test_pipeline_debug_endpoints_expose_normalized_items_and_rebuild() -> None:
         approve_response = client.post(f"/stories/{story_id}/approve")
         assert approve_response.status_code == 200
         assert approve_response.json()["status"] == StoryStatus.APPROVED
+
+
+def test_ingest_run_retries_flaky_source_before_marking_failure() -> None:
+    flaky_connector = FlakyConnector(items=[_github_item()])
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_phase07_ingest_retry_api.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            source_retry_attempts=2,
+        ),
+        connector_overrides={"github": flaky_connector},
+    )
+
+    with TestClient(app) as client:
+        ingest_response = client.post("/ingest/run", json={"source_slugs": ["github-trending"]})
+        assert ingest_response.status_code == 200
+
+        payload = ingest_response.json()
+        assert payload["status"] == "completed"
+        assert payload["sources_succeeded"] == 1
+        assert payload["sources_failed"] == 0
+        assert payload["items_ingested"] == 1
+        assert flaky_connector.calls == 2
 
 
 def test_publish_dispatch_and_poll_complete_jobs() -> None:

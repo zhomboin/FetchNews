@@ -250,7 +250,7 @@ def create_app(
         db: Session = Depends(get_db),
         _current_user: User | None = Depends(viewer_access),
     ) -> OpsSummaryResponse:
-        return build_ops_summary(db)
+        return build_ops_summary(db, settings=state.settings)
 
     @app.get("/sources")
     def list_sources(
@@ -278,6 +278,7 @@ def create_app(
                 db,
                 source_slugs=payload.source_slugs,
                 connector_registry=state.connector_registry,
+                settings=state.settings,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -627,7 +628,7 @@ def create_app(
         db: Session = Depends(get_db),
         current_user: User | None = Depends(editor_access),
     ) -> PublishDispatchResponse:
-        result = dispatch_due_publish_jobs(db, state.publisher_registry)
+        result = dispatch_due_publish_jobs(db, state.publisher_registry, settings=state.settings)
         record_audit_log(
             db,
             actor=current_user,

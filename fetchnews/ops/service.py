@@ -16,15 +16,25 @@ from fetchnews.schemas import (
     PublishPlatformMetricResponse,
     SectionReviewMetricResponse,
 )
+from fetchnews.settings import Settings
 
 
-def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSummaryResponse:
+def build_ops_summary(
+    session: Session,
+    now: datetime | None = None,
+    settings: Settings | None = None,
+) -> OpsSummaryResponse:
+    resolved_settings = settings or Settings()
     current_time = now or datetime.now(UTC)
     stories = session.scalars(select(Story).order_by(Story.score.desc(), Story.last_seen_at.desc(), Story.id.desc())).all()
     recent_failure_groups = _build_failure_groups(session)
     publish_platform_metrics = _build_publish_platform_metrics(session)
     section_engagement = build_section_engagement_snapshots(session)
     section_review_metrics = _build_section_review_metrics(stories, section_engagement)
+    source_failure_alerts = _build_source_failure_alerts(
+        session,
+        threshold=resolved_settings.source_failure_alert_threshold,
+    )
 
     ingest_runs_total = session.scalar(select(func.count()).select_from(IngestRun)) or 0
     ingest_runs_failed = session.scalar(
@@ -105,6 +115,7 @@ def build_ops_summary(session: Session, now: datetime | None = None) -> OpsSumma
             due_publish_jobs=due_publish_jobs,
             stories_pending=stories_pending,
             recent_failure_groups=recent_failure_groups,
+            source_failure_alerts=source_failure_alerts,
         ),
         recent_failure_groups=recent_failure_groups,
         publish_platform_metrics=publish_platform_metrics,
@@ -120,6 +131,7 @@ def _build_alerts(
     due_publish_jobs: int,
     stories_pending: int,
     recent_failure_groups: list[FailureGroupResponse],
+    source_failure_alerts: list[AlertRecordResponse],
 ) -> list[AlertRecordResponse]:
     alerts: list[AlertRecordResponse] = []
 
@@ -171,6 +183,8 @@ def _build_alerts(
             )
         )
 
+    alerts.extend(source_failure_alerts)
+
     for group in recent_failure_groups[:2]:
         if not group.targets:
             continue
@@ -188,6 +202,56 @@ def _build_alerts(
 
     alerts.sort(key=lambda alert: (_alert_severity_rank(alert.severity), -alert.count, alert.category, alert.title))
     return alerts[:8]
+
+
+def _build_source_failure_alerts(
+    session: Session,
+    *,
+    threshold: int,
+) -> list[AlertRecordResponse]:
+    if threshold <= 0:
+        return []
+
+    source_failures: dict[str, dict[str, object]] = {}
+    recent_failed_runs = session.scalars(
+        select(IngestRun)
+        .where(IngestRun.status.in_([IngestRunStatus.FAILED, IngestRunStatus.COMPLETED_WITH_ERRORS]))
+        .order_by(IngestRun.finished_at.desc(), IngestRun.id.desc())
+        .limit(10)
+    ).all()
+
+    for run in recent_failed_runs:
+        for error in run.errors:
+            source_slug = str(error.get("source_slug") or "").strip()
+            if not source_slug or source_slug == "pipeline":
+                continue
+            entry = source_failures.setdefault(
+                source_slug,
+                {
+                    "count": 0,
+                    "latest_reason": str(error.get("message") or "unknown ingest failure"),
+                },
+            )
+            entry["count"] = int(entry["count"]) + 1
+
+    alerts: list[AlertRecordResponse] = []
+    for source_slug, entry in sorted(source_failures.items(), key=lambda item: (-int(item[1]["count"]), item[0])):
+        count = int(entry["count"])
+        if count < threshold:
+            continue
+        latest_reason = str(entry["latest_reason"])
+        alerts.append(
+            AlertRecordResponse(
+                severity="warning",
+                category="source",
+                title=f"Repeated source failures: {source_slug}",
+                summary=f"{source_slug} failed {count} times in recent ingest runs.",
+                target=source_slug,
+                suggestion=_suggest_ingest_retry(latest_reason),
+                count=count,
+            )
+        )
+    return alerts
 
 
 def _alert_severity_rank(severity: str) -> int:

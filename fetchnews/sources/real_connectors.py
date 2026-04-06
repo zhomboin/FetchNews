@@ -17,6 +17,12 @@ class FetchedSourceBatch:
     next_cursor: str | None = None
 
 
+@dataclass(slots=True)
+class _FetchedRecordPage:
+    records: list[dict[str, Any]]
+    next_cursor: str | None = None
+
+
 class GitHubReleasesConnector:
     def fetch(self, source: Source) -> FetchedSourceBatch:
         releases = source.config.get("fixture_releases")
@@ -48,7 +54,7 @@ class GitHubReleasesConnector:
         response = httpx.get(
             _required_source_url(source),
             timeout=10.0,
-            headers={"User-Agent": "FetchNews/0.1"},
+            headers=_build_request_headers(source),
         )
         response.raise_for_status()
         payload = response.json()
@@ -88,27 +94,14 @@ class HuggingFacePapersConnector:
         response = httpx.get(
             _required_source_url(source),
             timeout=10.0,
-            headers={"User-Agent": "FetchNews/0.1"},
+            headers=_build_request_headers(source),
         )
         response.raise_for_status()
         root = HTMLParser(response.text)
-        entries: list[dict[str, Any]] = []
-        for card in root.css("article, section"):
-            anchor = card.css_first("a")
-            title = anchor.text(strip=True) if anchor is not None else ""
-            href = anchor.attributes.get("href", "") if anchor is not None else ""
-            if not title or not href:
-                continue
-            entries.append(
-                {
-                    "id": href,
-                    "title": title,
-                    "url": href if href.startswith("http") else f"https://huggingface.co{href}",
-                    "summary": title,
-                    "published_at": datetime.now(UTC).isoformat(),
-                }
-            )
-        return entries
+        entries = _extract_huggingface_entries(root)
+        if entries:
+            return entries
+        return _extract_huggingface_anchor_entries(root)
 
 
 class PapersWithCodeConnector:
@@ -116,12 +109,14 @@ class PapersWithCodeConnector:
         papers = source.config.get("fixture_papers")
         next_cursor = _coerce_cursor(source.config.get("fixture_next_cursor"))
         if papers is None:
-            papers = self._fetch_papers(source)
-            papers, next_cursor = _filter_records_by_datetime(
-                records=papers,
+            fetched_page = self._fetch_papers(source)
+            filtered_papers, filtered_cursor = _filter_records_by_datetime(
+                records=fetched_page.records,
                 cursor=source.incremental_cursor,
                 field_name="published_at",
             )
+            papers = filtered_papers
+            next_cursor = fetched_page.next_cursor or filtered_cursor
 
         items = [
             RawIngestedItem(
@@ -138,21 +133,65 @@ class PapersWithCodeConnector:
         ]
         return FetchedSourceBatch(items=items, next_cursor=next_cursor)
 
-    def _fetch_papers(self, source: Source) -> list[dict[str, Any]]:
+    def _fetch_papers(self, source: Source) -> _FetchedRecordPage:
         response = httpx.get(
             _required_source_url(source),
             timeout=10.0,
-            headers={"User-Agent": "FetchNews/0.1"},
+            headers=_build_request_headers(source),
         )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict):
             results = payload.get("results", [])
+            next_cursor = _coerce_cursor(payload.get("next"))
             if isinstance(results, list):
-                return [dict(item) for item in results]
+                return _FetchedRecordPage(records=[dict(item) for item in results], next_cursor=next_cursor)
         if isinstance(payload, list):
-            return [dict(item) for item in payload]
+            return _FetchedRecordPage(records=[dict(item) for item in payload])
         raise RuntimeError(f"Unexpected Papers with Code payload for {source.slug}")
+
+
+def _extract_huggingface_entries(root: HTMLParser) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for card in root.css("article, section"):
+        anchor = card.css_first("a")
+        title = anchor.text(strip=True) if anchor is not None else ""
+        href = anchor.attributes.get("href", "") if anchor is not None else ""
+        if not title or not href:
+            continue
+        entries.append(_build_huggingface_entry(title=title, href=href))
+    return entries
+
+
+def _extract_huggingface_anchor_entries(root: HTMLParser) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    seen_hrefs: set[str] = set()
+    for anchor in root.css('main a[href*="/papers/"], a[href*="/papers/"]'):
+        href = anchor.attributes.get("href", "")
+        title = anchor.text(strip=True)
+        if not href or href in seen_hrefs:
+            continue
+        seen_hrefs.add(href)
+        entries.append(_build_huggingface_entry(title=title or href, href=href))
+    return entries
+
+
+def _build_huggingface_entry(*, title: str, href: str) -> dict[str, Any]:
+    return {
+        "id": href,
+        "title": title,
+        "url": href if href.startswith("http") else f"https://huggingface.co{href}",
+        "summary": title,
+        "published_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _build_request_headers(source: Source) -> dict[str, str]:
+    headers = {"User-Agent": "FetchNews/0.1"}
+    auth_token = _coerce_cursor(source.config.get("auth_token"))
+    if auth_token is not None:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    return headers
 
 
 def _required_source_url(source: Source) -> str:

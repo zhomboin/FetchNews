@@ -10,7 +10,7 @@ from fetchnews.models import ArticleDraft, PostVariant, PublishJob, PublishJobSt
 @dataclass(slots=True)
 class PublishSubmission:
     provider_job_id: str
-    provider_payload: dict[str, str]
+    provider_payload: dict[str, object]
 
 
 @dataclass(slots=True)

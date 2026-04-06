@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -26,8 +26,11 @@ def build_default_publisher_registry(settings: Settings | None = None) -> Publis
         return selected_platform in (None, "", platform)
 
     telegram_connector: PublisherConnector = mock_connector
-    if resolved_settings.telegram_bot_token and uses_selected_platform("telegram"):
-        telegram_connector = RealTelegramPublisher(bot_token=resolved_settings.telegram_bot_token)
+    if resolved_settings.telegram_bot_token and resolved_settings.telegram_chat_id and uses_selected_platform("telegram"):
+        telegram_connector = RealTelegramPublisher(
+            bot_token=resolved_settings.telegram_bot_token,
+            chat_id=resolved_settings.telegram_chat_id,
+        )
 
     wechat_connector: PublisherConnector = mock_connector
     if resolved_settings.wechat_app_id and uses_selected_platform("wechat"):
@@ -72,9 +75,11 @@ def dispatch_due_publish_jobs(
     session: Session,
     publisher_registry: PublisherRegistry,
     *,
+    settings: Settings | None = None,
     now: datetime | None = None,
     limit: int = 50,
 ) -> PublishDispatchResponse:
+    resolved_settings = settings or Settings()
     dispatch_time = now or datetime.now(UTC)
     jobs = session.scalars(
         select(PublishJob)
@@ -87,7 +92,19 @@ def dispatch_due_publish_jobs(
 
     jobs_dispatched = 0
     jobs_failed = 0
+    rate_limited_platforms: set[str] = set()
     for job in jobs:
+        if job.platform in rate_limited_platforms or _platform_rate_limit_window_open(
+            session,
+            platform=job.platform,
+            now=dispatch_time,
+            cooldown_seconds=resolved_settings.publish_rate_limit_window_seconds,
+        ):
+            rate_limited_platforms.add(job.platform)
+            job.last_provider_status = "rate_limited"
+            session.flush()
+            continue
+
         article = session.get(ArticleDraft, job.article_id)
         variant = session.scalar(
             select(PostVariant)
@@ -108,12 +125,23 @@ def dispatch_due_publish_jobs(
 
         if not job.dispatch_key:
             job.dispatch_key = _build_dispatch_key(job)
-        submission = connector.submit(job, article, variant)
+        try:
+            submission = connector.submit(job, article, variant)
+        except Exception as exc:
+            jobs_failed += 1
+            job.last_provider_status = "submit_failed"
+            write_publish_job_result(
+                session,
+                job,
+                status=PublishJobStatus.FAILED,
+                error_message=str(exc) or "publish submit failed",
+            )
+            continue
         job.provider_job_id = submission.provider_job_id
         job.provider_payload = submission.provider_payload
         job.error_message = None
         job.failure_category = None
-        job.last_provider_status = "submitted"
+        job.last_provider_status = str(submission.provider_payload.get("provider_status") or "submitted")
         session.flush()
         jobs_dispatched += 1
 
@@ -224,15 +252,18 @@ def write_publish_job_result(
         job.external_id = external_id
         job.error_message = None
         job.failure_category = None
+        _clear_failure_window_state(job)
     else:
         job.error_message = error_message or "unknown publish failure"
         job.failure_category = classify_publish_failure(job.error_message)
+        _record_failure_window_state(job)
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
 
 
 def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
+    preserved_failure_window_state = _extract_failure_window_state(job)
     job.retries += 1
     job.status = PublishJobStatus.SCHEDULED
     job.external_id = None
@@ -240,7 +271,7 @@ def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     job.provider_job_id = None
     job.failure_category = None
     job.last_provider_status = None
-    job.provider_payload = {}
+    job.provider_payload = preserved_failure_window_state
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
@@ -308,6 +339,79 @@ def _resolve_dispatch_error(
 
 def _build_dispatch_key(job: PublishJob) -> str:
     return f"dispatch-{job.platform}-{job.id}"
+
+
+def _platform_rate_limit_window_open(
+    session: Session,
+    *,
+    platform: str,
+    now: datetime,
+    cooldown_seconds: int,
+) -> bool:
+    if cooldown_seconds <= 0:
+        return False
+    window_opened_at = now - timedelta(seconds=cooldown_seconds)
+    recent_jobs = session.scalars(
+        select(PublishJob)
+        .where(PublishJob.platform == platform)
+        .order_by(PublishJob.updated_at.desc(), PublishJob.id.desc())
+        .limit(20)
+    ).all()
+    return any(_job_has_open_rate_limit_window(job, window_opened_at) for job in recent_jobs)
+
+
+def _job_has_open_rate_limit_window(job: PublishJob, window_opened_at: datetime) -> bool:
+    updated_at = _coerce_datetime(job.updated_at)
+    if (
+        job.status == PublishJobStatus.FAILED
+        and job.failure_category == "rate_limit"
+        and updated_at is not None
+        and updated_at >= window_opened_at
+    ):
+        return True
+    preserved_state = _extract_failure_window_state(job)
+    failure_category = str(preserved_state.get("last_failure_category") or "").strip()
+    failure_at = _coerce_datetime(preserved_state.get("last_failure_at"))
+    return failure_category == "rate_limit" and failure_at is not None and failure_at >= window_opened_at
+
+
+def _record_failure_window_state(job: PublishJob) -> None:
+    preserved_state = _extract_failure_window_state(job)
+    preserved_state["last_failure_category"] = job.failure_category
+    preserved_state["last_failure_at"] = datetime.now(UTC).isoformat()
+    job.provider_payload = {**dict(job.provider_payload or {}), **preserved_state}
+
+
+def _clear_failure_window_state(job: PublishJob) -> None:
+    provider_payload = dict(job.provider_payload or {})
+    provider_payload.pop("last_failure_category", None)
+    provider_payload.pop("last_failure_at", None)
+    job.provider_payload = provider_payload
+
+
+def _extract_failure_window_state(job: PublishJob) -> dict[str, object]:
+    provider_payload = dict(job.provider_payload or {})
+    preserved_state: dict[str, object] = {}
+    if job.failure_category:
+        preserved_state["last_failure_category"] = job.failure_category
+        preserved_state["last_failure_at"] = job.updated_at.isoformat()
+    elif provider_payload.get("last_failure_category") and provider_payload.get("last_failure_at"):
+        preserved_state["last_failure_category"] = provider_payload["last_failure_category"]
+        preserved_state["last_failure_at"] = provider_payload["last_failure_at"]
+    return preserved_state
+
+
+def _coerce_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, str) and value:
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return None
 
 
 def _sync_article_status(session: Session, article_id: int) -> None:

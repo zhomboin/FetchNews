@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from fetchnews.models import IngestRun, IngestRunStatus, RawItem, Source
 from fetchnews.pipeline.service import run_story_pipeline
 from fetchnews.schemas import IngestRunError, IngestRunResponse, RawIngestedItem, SourceSpec
+from fetchnews.settings import Settings
 from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.connectors import SourceConnector, build_default_connector_registry
 from fetchnews.sources.real_connectors import FetchedSourceBatch
@@ -17,10 +18,12 @@ def execute_ingest_run(
     session: Session,
     source_slugs: list[str] | None = None,
     connector_registry: dict[str, SourceConnector] | None = None,
+    settings: Settings | None = None,
 ) -> IngestRun:
+    resolved_settings = settings or Settings()
     source_specs = get_source_specs(source_slugs)
     registry = connector_registry or build_default_connector_registry()
-    sources = _sync_sources(session, source_specs)
+    sources = _sync_sources(session, source_specs, resolved_settings)
 
     run = IngestRun(
         requested_source_slugs=[spec.slug for spec in source_specs],
@@ -45,9 +48,14 @@ def execute_ingest_run(
             continue
 
         try:
-            fetched_batch = _normalize_fetched_batch(connector.fetch(source))
+            fetched_batch = _fetch_with_retries(
+                connector,
+                source,
+                attempts=resolved_settings.source_retry_attempts,
+            )
             items_ingested += _persist_raw_items(session, source, run, fetched_batch.items)
-            source.incremental_cursor = fetched_batch.next_cursor
+            if fetched_batch.next_cursor is not None:
+                source.incremental_cursor = fetched_batch.next_cursor
             source.last_success_at = datetime.now(UTC)
             succeeded += 1
         except Exception as exc:
@@ -91,7 +99,7 @@ def ingest_run_to_response(run: IngestRun) -> IngestRunResponse:
     )
 
 
-def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str, Source]:
+def _sync_sources(session: Session, source_specs: list[SourceSpec], settings: Settings) -> dict[str, Source]:
     existing_sources = {
         source.slug: source
         for source in session.scalars(select(Source).where(Source.slug.in_([spec.slug for spec in source_specs]))).all()
@@ -99,6 +107,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
     synced: dict[str, Source] = {}
 
     for spec in source_specs:
+        resolved_config = _resolve_source_config(spec, settings)
         source = existing_sources.get(spec.slug)
         if source is None:
             source = Source(
@@ -108,7 +117,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
                 priority=spec.priority,
                 kind=spec.kind,
                 enabled=spec.enabled,
-                config=dict(spec.config),
+                config=resolved_config,
             )
             session.add(source)
         else:
@@ -117,7 +126,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
             source.priority = spec.priority
             source.kind = spec.kind
             source.enabled = spec.enabled
-            source.config = dict(spec.config)
+            source.config = resolved_config
         synced[spec.slug] = source
 
     session.flush()
@@ -134,6 +143,29 @@ def _normalize_fetched_batch(result: object) -> FetchedSourceBatch:
     if isinstance(result, list):
         return FetchedSourceBatch(items=result)
     raise RuntimeError("Connector returned an unsupported fetch result")
+
+
+def _resolve_source_config(spec: SourceSpec, settings: Settings) -> dict[str, object]:
+    resolved_config: dict[str, object] = dict(spec.config)
+    if spec.platform == "github" and spec.kind == "api" and settings.github_token:
+        resolved_config["auth_token"] = settings.github_token
+    return resolved_config
+
+
+def _fetch_with_retries(
+    connector: SourceConnector,
+    source: Source,
+    *,
+    attempts: int,
+) -> FetchedSourceBatch:
+    max_attempts = max(attempts, 1)
+    for attempt_index in range(max_attempts):
+        try:
+            return _normalize_fetched_batch(connector.fetch(source))
+        except Exception:
+            if attempt_index == max_attempts - 1:
+                raise
+    raise RuntimeError("Connector retry loop exited unexpectedly")
 
 
 def _persist_raw_items(session: Session, source: Source, run: IngestRun, items: list[RawIngestedItem]) -> int:

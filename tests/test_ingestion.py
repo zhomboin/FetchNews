@@ -30,6 +30,27 @@ class StubBatchConnector:
         return self.batch
 
 
+class FlakyConnector:
+    def __init__(self, items: list[RawIngestedItem]) -> None:
+        self.items = items
+        self.calls = 0
+
+    def fetch(self, source: Source) -> list[RawIngestedItem]:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("feed timeout")
+        return self.items
+
+
+class ConfigCapturingConnector:
+    def __init__(self) -> None:
+        self.seen_config: dict[str, object] | None = None
+
+    def fetch(self, source: Source) -> list[RawIngestedItem]:
+        self.seen_config = dict(source.config)
+        return []
+
+
 def _github_item() -> RawIngestedItem:
     return RawIngestedItem(
         source_slug="github-trending",
@@ -164,6 +185,49 @@ def test_worker_can_run_ingestion_job_with_overrides() -> None:
     assert result["status"] == IngestRunStatus.COMPLETED
     assert result["sources_total"] == 1
     assert result["items_ingested"] == 1
+
+
+def test_worker_retries_flaky_ingestion_source() -> None:
+    flaky_connector = FlakyConnector(items=[_github_item()])
+    settings = Settings(
+        database_url="sqlite:///./test_ingestion_worker_retry.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        source_retry_attempts=2,
+    )
+
+    result = run_ingestion_job(
+        source_slugs=["github-trending"],
+        settings=settings,
+        connector_overrides={"github": flaky_connector},
+    )
+
+    assert result["status"] == IngestRunStatus.COMPLETED
+    assert result["sources_total"] == 1
+    assert result["sources_failed"] == 0
+    assert result["items_ingested"] == 1
+    assert flaky_connector.calls == 2
+
+
+def test_ingest_run_injects_github_auth_token_into_source_config() -> None:
+    connector = ConfigCapturingConnector()
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_ingestion_github_token.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            github_token="gh-token",
+        ),
+        connector_overrides={"github-openai-releases": connector},
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == IngestRunStatus.COMPLETED
+        assert connector.seen_config is not None
+        assert connector.seen_config["auth_token"] == "gh-token"
 
 
 def test_worker_registers_periodic_ingestion_schedule() -> None:
@@ -404,6 +468,43 @@ def test_source_catalog_endpoint_applies_engagement_feedback_to_effective_weight
         assert reddit_ml["effective_score_multiplier"] < reddit_ml["config"]["score_multiplier"]
         assert "low_engagement" in reddit_ml["governance_flags"]
 
+
+def test_ingest_run_preserves_existing_cursor_when_batch_returns_no_new_cursor() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_real_connector_cursor_preserve.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    connector_overrides = {
+        "github-openai-releases": StubBatchConnector(FetchedSourceBatch(items=[], next_cursor=None))
+    }
+    app = create_app(settings, connector_overrides=connector_overrides)
+
+    with app.state.container.session_factory() as session:
+        source = Source(
+            slug="github-openai-releases",
+            label="GitHub OpenAI Releases",
+            platform="github",
+            priority="P0",
+            kind="api",
+            enabled=True,
+            config={"url": "https://api.github.com/repos/openai/openai-python/releases"},
+            incremental_cursor="github-cursor-old",
+        )
+        session.add(source)
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == IngestRunStatus.COMPLETED
+
+        with app.state.container.session_factory() as session:
+            source = session.scalar(select(Source).where(Source.slug == "github-openai-releases"))
+            assert source is not None
+            assert source.incremental_cursor == "github-cursor-old"
+            assert source.last_success_at is not None
 
 def test_ingest_run_updates_source_cursor_and_raw_snapshots_for_real_connectors() -> None:
     settings = Settings(
