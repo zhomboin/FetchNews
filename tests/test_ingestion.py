@@ -405,6 +405,43 @@ def test_source_catalog_endpoint_applies_engagement_feedback_to_effective_weight
         assert "low_engagement" in reddit_ml["governance_flags"]
 
 
+def test_ingest_run_preserves_existing_cursor_when_batch_returns_no_new_cursor() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_real_connector_cursor_preserve.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+    )
+    connector_overrides = {
+        "github-openai-releases": StubBatchConnector(FetchedSourceBatch(items=[], next_cursor=None))
+    }
+    app = create_app(settings, connector_overrides=connector_overrides)
+
+    with app.state.container.session_factory() as session:
+        source = Source(
+            slug="github-openai-releases",
+            label="GitHub OpenAI Releases",
+            platform="github",
+            priority="P0",
+            kind="api",
+            enabled=True,
+            config={"url": "https://api.github.com/repos/openai/openai-python/releases"},
+            incremental_cursor="github-cursor-old",
+        )
+        session.add(source)
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == IngestRunStatus.COMPLETED
+
+        with app.state.container.session_factory() as session:
+            source = session.scalar(select(Source).where(Source.slug == "github-openai-releases"))
+            assert source is not None
+            assert source.incremental_cursor == "github-cursor-old"
+            assert source.last_success_at is not None
+
 def test_ingest_run_updates_source_cursor_and_raw_snapshots_for_real_connectors() -> None:
     settings = Settings(
         database_url="sqlite:///./test_real_connector_ingestion.db",

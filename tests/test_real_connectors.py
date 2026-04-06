@@ -160,6 +160,116 @@ def test_github_connector_live_fetch_filters_items_using_incremental_cursor(monk
     assert result.next_cursor == "2026-04-04T10:00:00+00:00"
 
 
+def test_github_connector_uses_auth_header_when_token_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, object]]:
+            return []
+
+    def fake_get(url: str, *, timeout: float, headers: dict[str, str]) -> StubResponse:
+        captured["url"] = url
+        captured["timeout"] = timeout
+        captured["headers"] = headers
+        return StubResponse()
+
+    source = Source(
+        slug="github-openai-releases",
+        label="GitHub OpenAI Releases",
+        platform="github",
+        priority="P0",
+        kind="api",
+        enabled=True,
+        config={
+            "url": "https://api.github.com/repos/openai/openai-python/releases",
+            "auth_token": "gh-token",
+        },
+    )
+
+    monkeypatch.setattr("fetchnews.sources.real_connectors.httpx.get", fake_get)
+
+    GitHubReleasesConnector().fetch(source)
+
+    assert captured["url"] == "https://api.github.com/repos/openai/openai-python/releases"
+    assert captured["timeout"] == 10.0
+    assert captured["headers"] == {
+        "User-Agent": "FetchNews/0.1",
+        "Authorization": "Bearer gh-token",
+    }
+
+
+def test_huggingface_connector_falls_back_to_anchor_scan_when_cards_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        @property
+        def text(self) -> str:
+            return """
+            <main>
+              <div class="paper-link"><a href="/papers/hf-paper-9">Paper 9</a></div>
+            </main>
+            """
+
+    source = Source(
+        slug="hf-daily",
+        label="Hugging Face Daily",
+        platform="huggingface",
+        priority="P1",
+        kind="html",
+        enabled=True,
+        config={"url": "https://huggingface.co/papers"},
+    )
+
+    monkeypatch.setattr("fetchnews.sources.real_connectors.httpx.get", lambda *args, **kwargs: StubResponse())
+
+    result = HuggingFacePapersConnector().fetch(source)
+
+    assert len(result.items) == 1
+    assert result.items[0].external_id == "/papers/hf-paper-9"
+    assert result.next_cursor == "/papers/hf-paper-9"
+
+
+def test_paperswithcode_connector_prefers_api_next_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "results": [
+                    {
+                        "id": "pwc-2",
+                        "title": "Fresh paper",
+                        "url": "https://paperswithcode.com/paper/fresh-paper",
+                        "published_at": "2026-04-04T12:00:00Z",
+                        "authors": ["Alice"],
+                        "abstract": "Fresh abstract.",
+                    }
+                ],
+                "next": "https://paperswithcode.com/api/v1/papers?page=2",
+            }
+
+    source = Source(
+        slug="paperswithcode-latest",
+        label="Papers with Code Latest",
+        platform="paperswithcode",
+        priority="P1",
+        kind="api",
+        enabled=True,
+        config={"url": "https://paperswithcode.com/api/v1/papers"},
+    )
+
+    monkeypatch.setattr("fetchnews.sources.real_connectors.httpx.get", lambda *args, **kwargs: StubResponse())
+
+    result = PapersWithCodeConnector().fetch(source)
+
+    assert len(result.items) == 1
+    assert result.next_cursor == "https://paperswithcode.com/api/v1/papers?page=2"
+
 def test_huggingface_connector_returns_no_items_when_cursor_falls_out_of_current_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -47,7 +47,8 @@ def execute_ingest_run(
         try:
             fetched_batch = _normalize_fetched_batch(connector.fetch(source))
             items_ingested += _persist_raw_items(session, source, run, fetched_batch.items)
-            source.incremental_cursor = fetched_batch.next_cursor
+            if fetched_batch.next_cursor is not None:
+                source.incremental_cursor = fetched_batch.next_cursor
             source.last_success_at = datetime.now(UTC)
             succeeded += 1
         except Exception as exc:
