@@ -42,6 +42,15 @@ class FlakyConnector:
         return self.items
 
 
+class ConfigCapturingConnector:
+    def __init__(self) -> None:
+        self.seen_config: dict[str, object] | None = None
+
+    def fetch(self, source: Source) -> list[RawIngestedItem]:
+        self.seen_config = dict(source.config)
+        return []
+
+
 def _github_item() -> RawIngestedItem:
     return RawIngestedItem(
         source_slug="github-trending",
@@ -198,6 +207,27 @@ def test_worker_retries_flaky_ingestion_source() -> None:
     assert result["sources_failed"] == 0
     assert result["items_ingested"] == 1
     assert flaky_connector.calls == 2
+
+
+def test_ingest_run_injects_github_auth_token_into_source_config() -> None:
+    connector = ConfigCapturingConnector()
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_ingestion_github_token.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            github_token="gh-token",
+        ),
+        connector_overrides={"github-openai-releases": connector},
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == IngestRunStatus.COMPLETED
+        assert connector.seen_config is not None
+        assert connector.seen_config["auth_token"] == "gh-token"
 
 
 def test_worker_registers_periodic_ingestion_schedule() -> None:

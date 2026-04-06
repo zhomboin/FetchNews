@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -25,6 +26,7 @@ def test_settings_expose_phase07_platform_credentials() -> None:
         publish_real_platform="telegram",
         telegram_bot_token="telegram-token",
         telegram_chat_id="-100123",
+        github_token="gh-token",
         x_bearer_token="x-token",
         wechat_app_id="wechat-app-id",
     )
@@ -32,6 +34,7 @@ def test_settings_expose_phase07_platform_credentials() -> None:
     assert settings.publish_real_platform == "telegram"
     assert settings.telegram_bot_token == "telegram-token"
     assert settings.telegram_chat_id == "-100123"
+    assert settings.github_token == "gh-token"
     assert settings.x_bearer_token == "x-token"
     assert settings.wechat_app_id == "wechat-app-id"
 
@@ -627,6 +630,64 @@ def test_dispatch_due_publish_jobs_skips_platform_when_rate_limit_window_open() 
             assert pending_job.last_provider_status == "rate_limited"
 
         assert publisher.submit_calls == 0
+
+
+def test_retry_publish_job_preserves_rate_limit_cooldown_window() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_retry_rate_limit_window.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        publish_rate_limit_window_seconds=300,
+    )
+    publisher = TrackingPublisher()
+    app = create_app(settings, publisher_overrides={"telegram": publisher})
+
+    with TestClient(app) as client:
+        article_id = _create_ready_article(client, story_key="phase07-rate-limit-retry", target_date="2026-04-06")
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        publish_response = client.post(
+            f"/articles/{article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert publish_response.status_code == 200
+        job_id = publish_response.json()["jobs"][0]["id"]
+
+        with app.state.container.session_factory() as session:
+            job = session.get(PublishJob, job_id)
+            assert job is not None
+            write_publish_job_result(
+                session,
+                job,
+                status=PublishJobStatus.FAILED,
+                error_message="platform rate limit exceeded",
+            )
+            retry_publish_job(session, job)
+
+            dispatch_result = dispatch_due_publish_jobs(
+                session,
+                {"telegram": publisher},
+                settings=settings,
+            )
+            assert dispatch_result.jobs_dispatched == 0
+
+            retried_job = session.get(PublishJob, job_id)
+            assert retried_job is not None
+            assert retried_job.status == PublishJobStatus.SCHEDULED
+            assert retried_job.provider_job_id is None
+            assert retried_job.last_provider_status == "rate_limited"
+
+        assert publisher.submit_calls == 0
+
+
+def test_env_example_includes_phase07_hardening_runtime_variables() -> None:
+    env_example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+
+    assert "APP_TELEGRAM_CHAT_ID=" in env_example
+    assert "APP_PUBLISH_RATE_LIMIT_WINDOW_SECONDS=" in env_example
+    assert "APP_SOURCE_RETRY_ATTEMPTS=" in env_example
+    assert "APP_SOURCE_FAILURE_ALERT_THRESHOLD=" in env_example
+    assert "APP_GITHUB_TOKEN=" in env_example
+    assert "\nGITHUB_TOKEN=" not in env_example
 
 
 def test_real_telegram_publisher_poll_fails_after_deadline_without_callback() -> None:

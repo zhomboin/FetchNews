@@ -252,15 +252,18 @@ def write_publish_job_result(
         job.external_id = external_id
         job.error_message = None
         job.failure_category = None
+        _clear_failure_window_state(job)
     else:
         job.error_message = error_message or "unknown publish failure"
         job.failure_category = classify_publish_failure(job.error_message)
+        _record_failure_window_state(job)
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
 
 
 def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
+    preserved_failure_window_state = _extract_failure_window_state(job)
     job.retries += 1
     job.status = PublishJobStatus.SCHEDULED
     job.external_id = None
@@ -268,7 +271,7 @@ def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     job.provider_job_id = None
     job.failure_category = None
     job.last_provider_status = None
-    job.provider_payload = {}
+    job.provider_payload = preserved_failure_window_state
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
@@ -348,15 +351,67 @@ def _platform_rate_limit_window_open(
     if cooldown_seconds <= 0:
         return False
     window_opened_at = now - timedelta(seconds=cooldown_seconds)
-    rate_limited_job = session.scalar(
-        select(PublishJob.id)
+    recent_jobs = session.scalars(
+        select(PublishJob)
         .where(PublishJob.platform == platform)
-        .where(PublishJob.status == PublishJobStatus.FAILED)
-        .where(PublishJob.failure_category == "rate_limit")
-        .where(PublishJob.updated_at >= window_opened_at)
-        .limit(1)
-    )
-    return rate_limited_job is not None
+        .order_by(PublishJob.updated_at.desc(), PublishJob.id.desc())
+        .limit(20)
+    ).all()
+    return any(_job_has_open_rate_limit_window(job, window_opened_at) for job in recent_jobs)
+
+
+def _job_has_open_rate_limit_window(job: PublishJob, window_opened_at: datetime) -> bool:
+    updated_at = _coerce_datetime(job.updated_at)
+    if (
+        job.status == PublishJobStatus.FAILED
+        and job.failure_category == "rate_limit"
+        and updated_at is not None
+        and updated_at >= window_opened_at
+    ):
+        return True
+    preserved_state = _extract_failure_window_state(job)
+    failure_category = str(preserved_state.get("last_failure_category") or "").strip()
+    failure_at = _coerce_datetime(preserved_state.get("last_failure_at"))
+    return failure_category == "rate_limit" and failure_at is not None and failure_at >= window_opened_at
+
+
+def _record_failure_window_state(job: PublishJob) -> None:
+    preserved_state = _extract_failure_window_state(job)
+    preserved_state["last_failure_category"] = job.failure_category
+    preserved_state["last_failure_at"] = datetime.now(UTC).isoformat()
+    job.provider_payload = {**dict(job.provider_payload or {}), **preserved_state}
+
+
+def _clear_failure_window_state(job: PublishJob) -> None:
+    provider_payload = dict(job.provider_payload or {})
+    provider_payload.pop("last_failure_category", None)
+    provider_payload.pop("last_failure_at", None)
+    job.provider_payload = provider_payload
+
+
+def _extract_failure_window_state(job: PublishJob) -> dict[str, object]:
+    provider_payload = dict(job.provider_payload or {})
+    preserved_state: dict[str, object] = {}
+    if job.failure_category:
+        preserved_state["last_failure_category"] = job.failure_category
+        preserved_state["last_failure_at"] = job.updated_at.isoformat()
+    elif provider_payload.get("last_failure_category") and provider_payload.get("last_failure_at"):
+        preserved_state["last_failure_category"] = provider_payload["last_failure_category"]
+        preserved_state["last_failure_at"] = provider_payload["last_failure_at"]
+    return preserved_state
+
+
+def _coerce_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, str) and value:
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return None
 
 
 def _sync_article_status(session: Session, article_id: int) -> None:

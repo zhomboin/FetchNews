@@ -23,7 +23,7 @@ def execute_ingest_run(
     resolved_settings = settings or Settings()
     source_specs = get_source_specs(source_slugs)
     registry = connector_registry or build_default_connector_registry()
-    sources = _sync_sources(session, source_specs)
+    sources = _sync_sources(session, source_specs, resolved_settings)
 
     run = IngestRun(
         requested_source_slugs=[spec.slug for spec in source_specs],
@@ -99,7 +99,7 @@ def ingest_run_to_response(run: IngestRun) -> IngestRunResponse:
     )
 
 
-def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str, Source]:
+def _sync_sources(session: Session, source_specs: list[SourceSpec], settings: Settings) -> dict[str, Source]:
     existing_sources = {
         source.slug: source
         for source in session.scalars(select(Source).where(Source.slug.in_([spec.slug for spec in source_specs]))).all()
@@ -107,6 +107,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
     synced: dict[str, Source] = {}
 
     for spec in source_specs:
+        resolved_config = _resolve_source_config(spec, settings)
         source = existing_sources.get(spec.slug)
         if source is None:
             source = Source(
@@ -116,7 +117,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
                 priority=spec.priority,
                 kind=spec.kind,
                 enabled=spec.enabled,
-                config=dict(spec.config),
+                config=resolved_config,
             )
             session.add(source)
         else:
@@ -125,7 +126,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec]) -> dict[str,
             source.priority = spec.priority
             source.kind = spec.kind
             source.enabled = spec.enabled
-            source.config = dict(spec.config)
+            source.config = resolved_config
         synced[spec.slug] = source
 
     session.flush()
@@ -142,6 +143,13 @@ def _normalize_fetched_batch(result: object) -> FetchedSourceBatch:
     if isinstance(result, list):
         return FetchedSourceBatch(items=result)
     raise RuntimeError("Connector returned an unsupported fetch result")
+
+
+def _resolve_source_config(spec: SourceSpec, settings: Settings) -> dict[str, object]:
+    resolved_config: dict[str, object] = dict(spec.config)
+    if spec.platform == "github" and spec.kind == "api" and settings.github_token:
+        resolved_config["auth_token"] = settings.github_token
+    return resolved_config
 
 
 def _fetch_with_retries(

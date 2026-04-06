@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     mock_publish_completion_seconds: int = Field(default=0)
     publish_real_platform: str | None = Field(default=None)
     publish_callback_secret: str | None = Field(default=None)
+    github_token: str | None = Field(default=None)
     telegram_bot_token: str | None = Field(default=None)
     telegram_chat_id: str | None = Field(default=None)
     x_bearer_token: str | None = Field(default=None)
