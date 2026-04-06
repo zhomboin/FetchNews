@@ -226,6 +226,56 @@ def test_ops_summary_groups_publish_failures_by_platform_and_category() -> None:
         assert metrics_by_platform["telegram"]["last_failure_category"] == "moderation"
 
 
+def test_ops_summary_emits_alert_for_repeated_source_failures() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_ops_repeated_source_alerts.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            source_failure_alert_threshold=2,
+        )
+    )
+
+    with app.state.container.session_factory() as session:
+        ingest_run_model = app.state.container.model_registry["ingest_run"]
+        session.add_all(
+            [
+                ingest_run_model(
+                    requested_source_slugs=["hf-daily"],
+                    status="completed_with_errors",
+                    sources_total=1,
+                    sources_succeeded=0,
+                    sources_failed=1,
+                    items_ingested=0,
+                    errors=[{"source_slug": "hf-daily", "message": "feed timeout"}],
+                    started_at=datetime(2026, 6, 4, 8, 0, tzinfo=UTC),
+                    finished_at=datetime(2026, 6, 4, 8, 1, tzinfo=UTC),
+                ),
+                ingest_run_model(
+                    requested_source_slugs=["hf-daily"],
+                    status="completed_with_errors",
+                    sources_total=1,
+                    sources_succeeded=0,
+                    sources_failed=1,
+                    items_ingested=0,
+                    errors=[{"source_slug": "hf-daily", "message": "feed timeout"}],
+                    started_at=datetime(2026, 6, 4, 9, 0, tzinfo=UTC),
+                    finished_at=datetime(2026, 6, 4, 9, 1, tzinfo=UTC),
+                ),
+            ]
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        payload = summary_response.json()
+        source_alert = next(alert for alert in payload["alerts"] if alert["category"] == "source")
+        assert source_alert["target"] == "hf-daily"
+        assert source_alert["count"] == 2
+        assert "hf-daily" in source_alert["summary"]
+
+
 def test_postgres_bootstrap_mode_skip_does_not_create_tables() -> None:
     engine, _factory = create_engine_and_factory("sqlite:///./test_bootstrap_skip.db")
 

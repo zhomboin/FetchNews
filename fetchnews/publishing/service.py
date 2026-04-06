@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -75,9 +75,11 @@ def dispatch_due_publish_jobs(
     session: Session,
     publisher_registry: PublisherRegistry,
     *,
+    settings: Settings | None = None,
     now: datetime | None = None,
     limit: int = 50,
 ) -> PublishDispatchResponse:
+    resolved_settings = settings or Settings()
     dispatch_time = now or datetime.now(UTC)
     jobs = session.scalars(
         select(PublishJob)
@@ -90,7 +92,19 @@ def dispatch_due_publish_jobs(
 
     jobs_dispatched = 0
     jobs_failed = 0
+    rate_limited_platforms: set[str] = set()
     for job in jobs:
+        if job.platform in rate_limited_platforms or _platform_rate_limit_window_open(
+            session,
+            platform=job.platform,
+            now=dispatch_time,
+            cooldown_seconds=resolved_settings.publish_rate_limit_window_seconds,
+        ):
+            rate_limited_platforms.add(job.platform)
+            job.last_provider_status = "rate_limited"
+            session.flush()
+            continue
+
         article = session.get(ArticleDraft, job.article_id)
         variant = session.scalar(
             select(PostVariant)
@@ -322,6 +336,27 @@ def _resolve_dispatch_error(
 
 def _build_dispatch_key(job: PublishJob) -> str:
     return f"dispatch-{job.platform}-{job.id}"
+
+
+def _platform_rate_limit_window_open(
+    session: Session,
+    *,
+    platform: str,
+    now: datetime,
+    cooldown_seconds: int,
+) -> bool:
+    if cooldown_seconds <= 0:
+        return False
+    window_opened_at = now - timedelta(seconds=cooldown_seconds)
+    rate_limited_job = session.scalar(
+        select(PublishJob.id)
+        .where(PublishJob.platform == platform)
+        .where(PublishJob.status == PublishJobStatus.FAILED)
+        .where(PublishJob.failure_category == "rate_limit")
+        .where(PublishJob.updated_at >= window_opened_at)
+        .limit(1)
+    )
+    return rate_limited_job is not None
 
 
 def _sync_article_status(session: Session, article_id: int) -> None:

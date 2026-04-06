@@ -567,6 +567,68 @@ def test_dispatch_due_publish_jobs_marks_job_failed_when_submit_raises() -> None
             assert failed_job.failure_category == "auth"
             assert failed_job.last_provider_status == "submit_failed"
 
+
+def test_dispatch_due_publish_jobs_skips_platform_when_rate_limit_window_open() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_dispatch_rate_limit_window.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        publish_rate_limit_window_seconds=300,
+    )
+    publisher = TrackingPublisher()
+    app = create_app(settings, publisher_overrides={"telegram": publisher})
+
+    with TestClient(app) as client:
+        blocked_article_id = _create_ready_article(
+            client,
+            story_key="phase07-dispatch-rate-limit-blocked",
+            target_date="2026-04-06",
+        )
+        allowed_article_id = _create_ready_article(
+            client,
+            story_key="phase07-dispatch-rate-limit-pending",
+            target_date="2026-04-06",
+        )
+        scheduled_for = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+
+        blocked_publish_response = client.post(
+            f"/articles/{blocked_article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert blocked_publish_response.status_code == 200
+        blocked_job_id = blocked_publish_response.json()["jobs"][0]["id"]
+
+        blocked_result_response = client.post(
+            f"/publish-jobs/{blocked_job_id}/result",
+            json={"status": "failed", "error_message": "platform rate limit exceeded"},
+        )
+        assert blocked_result_response.status_code == 200
+
+        pending_publish_response = client.post(
+            f"/articles/{allowed_article_id}/publish",
+            json={"platforms": ["telegram"], "scheduled_for": scheduled_for},
+        )
+        assert pending_publish_response.status_code == 200
+        pending_job_id = pending_publish_response.json()["jobs"][0]["id"]
+
+        with app.state.container.session_factory() as session:
+            dispatch_result = dispatch_due_publish_jobs(
+                session,
+                {"telegram": publisher},
+                settings=settings,
+            )
+            assert dispatch_result.jobs_dispatched == 0
+            assert dispatch_result.jobs_failed == 0
+
+            pending_job = session.get(PublishJob, pending_job_id)
+            assert pending_job is not None
+            assert pending_job.status == PublishJobStatus.SCHEDULED
+            assert pending_job.provider_job_id is None
+            assert pending_job.last_provider_status == "rate_limited"
+
+        assert publisher.submit_calls == 0
+
+
 def test_real_telegram_publisher_poll_fails_after_deadline_without_callback() -> None:
     publisher = RealTelegramPublisher(bot_token="telegram-token", chat_id="-100123")
     job = PublishJob(

@@ -30,6 +30,18 @@ class StubBatchConnector:
         return self.batch
 
 
+class FlakyConnector:
+    def __init__(self, items: list[RawIngestedItem]) -> None:
+        self.items = items
+        self.calls = 0
+
+    def fetch(self, source: Source) -> list[RawIngestedItem]:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("feed timeout")
+        return self.items
+
+
 def _github_item() -> RawIngestedItem:
     return RawIngestedItem(
         source_slug="github-trending",
@@ -164,6 +176,28 @@ def test_worker_can_run_ingestion_job_with_overrides() -> None:
     assert result["status"] == IngestRunStatus.COMPLETED
     assert result["sources_total"] == 1
     assert result["items_ingested"] == 1
+
+
+def test_worker_retries_flaky_ingestion_source() -> None:
+    flaky_connector = FlakyConnector(items=[_github_item()])
+    settings = Settings(
+        database_url="sqlite:///./test_ingestion_worker_retry.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        source_retry_attempts=2,
+    )
+
+    result = run_ingestion_job(
+        source_slugs=["github-trending"],
+        settings=settings,
+        connector_overrides={"github": flaky_connector},
+    )
+
+    assert result["status"] == IngestRunStatus.COMPLETED
+    assert result["sources_total"] == 1
+    assert result["sources_failed"] == 0
+    assert result["items_ingested"] == 1
+    assert flaky_connector.calls == 2
 
 
 def test_worker_registers_periodic_ingestion_schedule() -> None:

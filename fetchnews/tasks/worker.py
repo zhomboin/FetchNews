@@ -59,6 +59,7 @@ def run_ingestion_job(
             session,
             source_slugs=source_slugs,
             connector_registry=connector_registry,
+            settings=resolved_settings,
         )
         return ingest_run_to_response(run).model_dump(mode="json")
 
@@ -75,7 +76,7 @@ def run_dispatch_due_publish_jobs(
         publisher_registry.update(publisher_overrides)
 
     with session_scope(session_factory) as session:
-        result = dispatch_due_publish_jobs(session, publisher_registry)
+        result = dispatch_due_publish_jobs(session, publisher_registry, settings=resolved_settings)
         session.commit()
         return result.model_dump(mode="json")
 
