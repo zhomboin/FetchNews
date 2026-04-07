@@ -42,7 +42,7 @@ docker compose up api worker beat web redis
 
 ## 环境变量配置
 
-在仓库根目录创建 `.env`，并以 [`.env.example`](/D:/Code/Project/FetchNews/.worktrees/phase-07-hardening-task-1/.env.example) 为起点调整。
+在仓库根目录创建 `.env`，并以 [`.env.example`](/D:/Code/Project/FetchNews/.worktrees/config-runtime-api-base/.env.example) 为起点调整。
 
 最小本地开发示例：
 
@@ -58,8 +58,34 @@ APP_PUBLISH_CALLBACK_SECRET=fetchnews-dev-callback-secret
 APP_PUBLISH_RATE_LIMIT_WINDOW_SECONDS=300
 APP_SOURCE_RETRY_ATTEMPTS=2
 APP_SOURCE_FAILURE_ALERT_THRESHOLD=3
+APP_CORS_ORIGINS=http://localhost:5173
 VITE_API_BASE=http://localhost:8000
 ```
+
+地址语义约束：
+
+- `VITE_API_BASE` 必须填写浏览器可访问的后端地址，而不是容器内部地址，也不是你主观上认为的默认地址
+- 如果前端页面是通过 `http://192.168.175.201:5173` 打开的，那么 `VITE_API_BASE` 也应配置为 `http://192.168.175.201:8000`
+- `docker compose` 启动的 `web` 服务会从仓库根目录 `.env` 读取 `VITE_API_BASE`
+- 修改 `VITE_API_BASE` 后必须重启 `web` 服务，已有前端 dev server 不会热更新这个变量
+
+CORS 配置约束：
+
+- `APP_CORS_ORIGINS` 是后端允许访问 API 的前端来源列表
+- 该值应填写前端页面自身的来源，而不是后端 API 地址
+- 单机开发示例：
+
+```env
+APP_CORS_ORIGINS=http://localhost:5173
+```
+
+- 虚拟机或局域网访问示例：
+
+```env
+APP_CORS_ORIGINS=http://localhost:5173,http://192.168.175.201:5173
+```
+
+- 如果你同时在宿主机和局域网地址下访问前端，应把两个来源都写进去
 
 如果要验证 `telegram` 真实发布 MVP，还需要补以下变量：
 
@@ -167,9 +193,23 @@ npm run dev -- --host 0.0.0.0
 
 ## 验证清单
 
+以下 URL 中的主机名仅是示例。你应始终使用浏览器实际访问前端和后端时可达的地址。
+
+- 单机示例：
+  - 后端：`http://localhost:8000`
+  - 前端：`http://localhost:5173`
+- 虚拟机示例：
+  - 后端：`http://192.168.175.201:8000`
+  - 前端：`http://192.168.175.201:5173`
+
 ### 1. 健康检查
 
-打开 [http://localhost:8000/healthz](http://localhost:8000/healthz)。
+打开 `<后端地址>/healthz`。
+
+示例：
+
+- [http://localhost:8000/healthz](http://localhost:8000/healthz)
+- [http://192.168.175.201:8000/healthz](http://192.168.175.201:8000/healthz)
 
 预期返回：
 
@@ -179,7 +219,12 @@ npm run dev -- --host 0.0.0.0
 
 ### 2. 鉴权配置与登录
 
-打开 [http://localhost:8000/auth/config](http://localhost:8000/auth/config)。
+打开 `<后端地址>/auth/config`。
+
+示例：
+
+- [http://localhost:8000/auth/config](http://localhost:8000/auth/config)
+- [http://192.168.175.201:8000/auth/config](http://192.168.175.201:8000/auth/config)
 
 当鉴权开启时，预期返回：
 
@@ -187,11 +232,11 @@ npm run dev -- --host 0.0.0.0
 {"auth_enabled":true}
 ```
 
-然后打开 [http://localhost:5173](http://localhost:5173)，使用 bootstrap 管理员账户登录，确认可以进入后台而不是停留在登录页。
+然后打开 `<前端地址>`，使用 bootstrap 管理员账户登录，确认可以进入后台而不是停留在登录页。
 
 ### 3. 来源目录
 
-完成登录后，访问 [http://localhost:8000/sources](http://localhost:8000/sources)，或通过前端携带 token 调用。
+完成登录后，访问 `<后端地址>/sources`，或通过前端携带 token 调用。
 
 预期可见已启用来源，例如：
 
@@ -209,7 +254,7 @@ npm run dev -- --host 0.0.0.0
 
 ### 4. 手动采集
 
-在前端打开 [http://localhost:5173/ingestion](http://localhost:5173/ingestion)，触发一次采集。
+在前端打开 `<前端地址>/ingestion`，触发一次采集。
 
 预期行为：
 
@@ -221,17 +266,17 @@ npm run dev -- --host 0.0.0.0
 
 ### 5. story 审核与草稿生成
 
-打开 [http://localhost:5173/stories](http://localhost:5173/stories)，审核通过一个或多个 story；再到 [http://localhost:5173/articles](http://localhost:5173/articles) 生成日报、周报或月报。
+打开 `<前端地址>/stories`，审核通过一个或多个 story；再到 `<前端地址>/articles` 生成日报、周报或月报。
 
 预期行为：
 
 - 草稿被创建或重建
 - 所选 story 范围被保留
-- `wechat`、`x`、`telegram` 平台变体可查看
+- `wechat`、`x`、`telegram` 平台变体可查
 
 ### 6. 发布与运维验证
 
-在草稿中心创建发布任务，然后返回 [http://localhost:5173](http://localhost:5173) 查看运维首页。
+在草稿中心创建发布任务，然后返回 `<前端地址>` 查看运维首页。
 
 预期行为：
 

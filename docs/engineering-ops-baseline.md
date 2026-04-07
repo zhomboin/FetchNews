@@ -82,13 +82,20 @@
 - `APP_PUBLISH_RATE_LIMIT_WINDOW_SECONDS`
 - `APP_SOURCE_RETRY_ATTEMPTS`
 - `APP_SOURCE_FAILURE_ALERT_THRESHOLD`
+- `APP_CORS_ORIGINS`
 
 约束：
 
 - `development` / `test` 环境默认 callback secret 为 `fetchnews-dev-callback-secret`
 - 非 `development/test` 环境必须显式设置 `APP_PUBLISH_CALLBACK_SECRET`
-- 如果未设置，应用在启动阶段直接失败
+- 如果未设置，应用会在启动阶段直接失败
 - 如果启用 `github-openai-releases` 等 GitHub API 来源，必须显式设置 `APP_GITHUB_TOKEN`
+- `APP_CORS_ORIGINS` 用于声明允许访问后端 API 的前端来源，默认仅允许 `http://localhost:5173`
+- 如果前端会通过多个地址访问，例如宿主机地址和虚拟机地址并存，必须显式配置多个来源，例如：
+
+```env
+APP_CORS_ORIGINS=http://localhost:5173,http://192.168.175.201:5173
+```
 
 ### 发布基线
 
@@ -215,4 +222,4 @@ npm run test:run
 ## 文档语言约束
 
 - 工程与运维说明统一使用中文撰写
-- 保留英文工具名时，需要放在中文语义中解释清楚
+- 保留英文工具名时，需要放在中文语义中解释清晰
