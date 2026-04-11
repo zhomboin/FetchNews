@@ -90,6 +90,28 @@ class RealTelegramPublisher:
             },
             timeout=self.request_timeout_seconds,
         )
+        return self._build_submission_from_response(response, job=job, article=article, variant=variant)
+
+    async def submit_async(self, job: PublishJob, article: ArticleDraft, variant: PostVariant) -> PublishSubmission:
+        async with httpx.AsyncClient(base_url=self.api_base_url, timeout=self.request_timeout_seconds) as client:
+            response = await client.post(
+                f"/bot{self.bot_token}/sendMessage",
+                json={
+                    "chat_id": self.chat_id,
+                    "text": variant.content,
+                    "disable_web_page_preview": False,
+                },
+            )
+        return self._build_submission_from_response(response, job=job, article=article, variant=variant)
+
+    def _build_submission_from_response(
+        self,
+        response: httpx.Response,
+        *,
+        job: PublishJob,
+        article: ArticleDraft,
+        variant: PostVariant,
+    ) -> PublishSubmission:
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):

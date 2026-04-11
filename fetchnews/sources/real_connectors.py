@@ -188,6 +188,8 @@ def _build_huggingface_entry(*, title: str, href: str) -> dict[str, Any]:
 
 def _build_request_headers(source: Source) -> dict[str, str]:
     headers = {"User-Agent": "FetchNews/0.1"}
+    if source.platform == "github" and source.kind == "api":
+        headers["Accept"] = "application/vnd.github+json"
     auth_token = _coerce_cursor(source.config.get("auth_token"))
     if auth_token is not None:
         headers["Authorization"] = f"Bearer {auth_token}"

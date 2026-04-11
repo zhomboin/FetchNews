@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 import os
+from pathlib import Path
 
 os.environ.setdefault("APP_DATABASE_URL", "sqlite:///./test_import_bootstrap.db")
 
@@ -283,3 +284,20 @@ def test_postgres_bootstrap_mode_skip_does_not_create_tables() -> None:
 
     inspector = inspect(engine)
     assert inspector.get_table_names() == []
+
+
+def test_security_module_warns_that_access_tokens_are_not_standard_jwt() -> None:
+    security_source = (Path(__file__).resolve().parents[1] / "fetchnews" / "core" / "security.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "非标准 JWT" in security_source
+
+
+
+def test_getting_started_explicitly_requires_alembic_before_postgres_auto_bootstrap_skip_startup() -> None:
+    getting_started = (Path(__file__).resolve().parents[1] / "docs" / "getting-started.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "首次启动前必须先执行 `alembic upgrade head`" in getting_started

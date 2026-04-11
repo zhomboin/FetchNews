@@ -124,6 +124,8 @@ def decode_access_token(token: str, settings: Settings, *, now: datetime | None 
 
 
 
+# 非标准 JWT：这里只编码 payload.signature 两段式 HMAC token，
+# 没有 JOSE header / alg / kid / aud / iss，客户端不能按标准 JWT 解码。
 def _encode_token(payload: dict[str, Any], secret_key: str) -> str:
     payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     encoded_payload = _urlsafe_b64encode(payload_json)

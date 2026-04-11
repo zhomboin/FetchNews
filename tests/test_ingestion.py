@@ -1,11 +1,14 @@
 from datetime import UTC, datetime
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from fetchnews.main import create_app
 from fetchnews.models import IngestRun, IngestRunStatus, NormalizedItemRecord, RawItem, Source, Story, StoryStatus
 from fetchnews.schemas import RawIngestedItem
+from fetchnews.sources import service as source_service
 from fetchnews.sources.real_connectors import FetchedSourceBatch
 from fetchnews.settings import Settings
 from fetchnews.tasks.worker import run_ingestion_job
@@ -228,6 +231,90 @@ def test_ingest_run_injects_github_auth_token_into_source_config() -> None:
         assert response.json()["status"] == IngestRunStatus.COMPLETED
         assert connector.seen_config is not None
         assert connector.seen_config["auth_token"] == "gh-token"
+
+
+def test_ingest_run_preserves_runtime_source_config_fields() -> None:
+    connector = ConfigCapturingConnector()
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_ingestion_source_config_merge.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+        ),
+        connector_overrides={"github-openai-releases": connector},
+    )
+
+    with app.state.container.session_factory() as session:
+        session.add(
+            Source(
+                slug="github-openai-releases",
+                label="GitHub OpenAI Releases",
+                platform="github",
+                priority="P0",
+                kind="api",
+                enabled=True,
+                config={
+                    "url": "https://api.github.com/repos/openai/openai-python/releases",
+                    "runtime_etag": "etag-123",
+                    "last_seen_release_id": "release-42",
+                },
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/run", json={"source_slugs": ["github-openai-releases"]})
+
+        assert response.status_code == 200
+        assert connector.seen_config is not None
+        assert connector.seen_config["runtime_etag"] == "etag-123"
+        assert connector.seen_config["last_seen_release_id"] == "release-42"
+
+        with app.state.container.session_factory() as session:
+            source = session.scalar(select(Source).where(Source.slug == "github-openai-releases"))
+            assert source is not None
+            assert source.config["runtime_etag"] == "etag-123"
+            assert source.config["last_seen_release_id"] == "release-42"
+
+
+def test_fetch_with_retries_respects_retry_after_for_rate_limited_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+
+    class FakeTimeModule:
+        def sleep(self, seconds: float) -> None:
+            delays.append(seconds)
+
+    class RateLimitedConnector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fetch(self, source: Source) -> list[RawIngestedItem]:
+            self.calls += 1
+            if self.calls == 1:
+                request = httpx.Request("GET", "https://example.com/feed")
+                response = httpx.Response(429, headers={"Retry-After": "2"}, request=request)
+                raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+            return [_github_item()]
+
+    monkeypatch.setattr(source_service, "time", FakeTimeModule(), raising=False)
+    connector = RateLimitedConnector()
+    source = Source(
+        slug="github-trending",
+        label="GitHub Trending",
+        platform="github",
+        priority="P0",
+        kind="api",
+        enabled=True,
+        config={"url": "https://example.com/feed"},
+    )
+
+    batch = source_service._fetch_with_retries(connector, source, attempts=2)
+
+    assert len(batch.items) == 1
+    assert connector.calls == 2
+    assert delays == [2.0]
 
 
 def test_worker_registers_periodic_ingestion_schedule() -> None:

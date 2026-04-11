@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from fetchnews.models import ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
+from fetchnews.models import AuditLog, ArticleDraft, ArticleStatus, IngestRun, IngestRunStatus, PublishJob, PublishJobStatus, Story, StoryStatus
 from fetchnews.pipeline.engagement import build_section_engagement_snapshots, resolve_story_primary_section
 from fetchnews.publishing.platform_errors import classify_publish_failure
 from fetchnews.schemas import (
@@ -35,6 +35,7 @@ def build_ops_summary(
         session,
         threshold=resolved_settings.source_failure_alert_threshold,
     )
+    callback_security_alerts = _build_callback_security_alerts(session)
 
     ingest_runs_total = session.scalar(select(func.count()).select_from(IngestRun)) or 0
     ingest_runs_failed = session.scalar(
@@ -116,6 +117,7 @@ def build_ops_summary(
             stories_pending=stories_pending,
             recent_failure_groups=recent_failure_groups,
             source_failure_alerts=source_failure_alerts,
+            callback_security_alerts=callback_security_alerts,
         ),
         recent_failure_groups=recent_failure_groups,
         publish_platform_metrics=publish_platform_metrics,
@@ -132,6 +134,7 @@ def _build_alerts(
     stories_pending: int,
     recent_failure_groups: list[FailureGroupResponse],
     source_failure_alerts: list[AlertRecordResponse],
+    callback_security_alerts: list[AlertRecordResponse],
 ) -> list[AlertRecordResponse]:
     alerts: list[AlertRecordResponse] = []
 
@@ -184,6 +187,7 @@ def _build_alerts(
         )
 
     alerts.extend(source_failure_alerts)
+    alerts.extend(callback_security_alerts)
 
     for group in recent_failure_groups[:2]:
         if not group.targets:
@@ -252,6 +256,49 @@ def _build_source_failure_alerts(
             )
         )
     return alerts
+
+
+def _build_callback_security_alerts(session: Session) -> list[AlertRecordResponse]:
+    grouped: dict[str, dict[str, int]] = {}
+    recent_security_events = session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action.in_(["publish.callback.secret_rejected", "publish.callback.rate_limited"]))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(50)
+    ).all()
+
+    for audit_log in recent_security_events:
+        client_ip = str(audit_log.detail.get("client_ip") or "unknown").strip() or "unknown"
+        entry = grouped.setdefault(client_ip, {"secret_rejected": 0, "rate_limited": 0})
+        if audit_log.action == "publish.callback.rate_limited":
+            entry["rate_limited"] += 1
+        else:
+            entry["secret_rejected"] += 1
+
+    alerts: list[AlertRecordResponse] = []
+    for client_ip, entry in sorted(grouped.items(), key=lambda item: (-(item[1]["secret_rejected"] + item[1]["rate_limited"]), item[0])):
+        total_events = entry["secret_rejected"] + entry["rate_limited"]
+        if total_events == 0:
+            continue
+        alerts.append(
+            AlertRecordResponse(
+                severity="critical" if entry["rate_limited"] > 0 else "warning",
+                category="security",
+                title=f"Callback security pressure from {client_ip}",
+                summary=(
+                    f"{client_ip} triggered {entry['secret_rejected']} invalid-secret callbacks and "
+                    f"{entry['rate_limited']} rate-limited callback bursts."
+                ),
+                target=client_ip,
+                suggestion=(
+                    "Verify callback secret rotation, restrict ingress by trusted source IPs, and inspect recent "
+                    "callback traffic before re-enabling automation from this address."
+                ),
+                count=total_events,
+            )
+        )
+    return alerts
+
 
 
 def _alert_severity_rank(severity: str) -> int:

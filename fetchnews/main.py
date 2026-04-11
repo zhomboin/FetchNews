@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 import secrets
+from threading import Lock
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
@@ -87,6 +91,46 @@ from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
 
 DEFAULT_DEVELOPMENT_CALLBACK_SECRET = "fetchnews-dev-callback-secret"
+CALLBACK_IP_WINDOW_SECONDS = 300
+CALLBACK_IP_MAX_ATTEMPTS = 3
+
+
+@dataclass(slots=True)
+class CallbackRateLimitDecision:
+    allowed: bool
+    count: int
+    retry_after_seconds: int = 0
+
+
+class CallbackIpRateLimiter:
+    def __init__(self, *, max_attempts: int, window_seconds: int) -> None:
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self._attempts_by_ip: dict[str, deque[datetime]] = {}
+        self._lock = Lock()
+
+    def register(self, client_ip: str, *, now: datetime | None = None) -> CallbackRateLimitDecision:
+        current_time = now or datetime.now(UTC)
+        window_start = current_time - timedelta(seconds=self.window_seconds)
+        with self._lock:
+            attempts = self._attempts_by_ip.setdefault(client_ip, deque())
+            while attempts and attempts[0] < window_start:
+                attempts.popleft()
+            attempts.append(current_time)
+            allowed = len(attempts) <= self.max_attempts
+            retry_after_seconds = 0
+            if not allowed and attempts:
+                retry_after_seconds = max(
+                    self.window_seconds - int((current_time - attempts[0]).total_seconds()),
+                    1,
+                )
+            if not attempts:
+                self._attempts_by_ip.pop(client_ip, None)
+            return CallbackRateLimitDecision(
+                allowed=allowed,
+                count=len(attempts),
+                retry_after_seconds=retry_after_seconds,
+            )
 
 
 class AppState:
@@ -110,6 +154,10 @@ class AppState:
         if connector_overrides:
             self.connector_registry.update(connector_overrides)
         self.publisher_registry = build_default_publisher_registry(settings)
+        self.publish_callback_rate_limiter = CallbackIpRateLimiter(
+            max_attempts=CALLBACK_IP_MAX_ATTEMPTS,
+            window_seconds=CALLBACK_IP_WINDOW_SECONDS,
+        )
         if publisher_overrides:
             self.publisher_registry.update(publisher_overrides)
         self.model_registry = {
@@ -659,10 +707,48 @@ def create_app(
     def handle_job_callback(
         platform: str,
         payload: dict[str, object],
+        request: Request,
         callback_secret: str | None = Header(default=None, alias="X-FetchNews-Callback-Secret"),
         db: Session = Depends(get_db),
     ) -> PublishJobResponse:
-        _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
+        client_ip = _resolve_client_ip(request)
+        rate_limit_decision = state.publish_callback_rate_limiter.register(client_ip)
+        if not rate_limit_decision.allowed:
+            record_audit_log(
+                db,
+                actor=None,
+                action="publish.callback.rate_limited",
+                resource_type="publish_callback",
+                resource_id=platform,
+                detail={
+                    "platform": platform,
+                    "client_ip": client_ip,
+                    "attempt_count": rate_limit_decision.count,
+                },
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many callback requests from this IP",
+                headers={"Retry-After": str(rate_limit_decision.retry_after_seconds)},
+            )
+        try:
+            _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
+        except HTTPException:
+            record_audit_log(
+                db,
+                actor=None,
+                action="publish.callback.secret_rejected",
+                resource_type="publish_callback",
+                resource_id=platform,
+                detail={
+                    "platform": platform,
+                    "client_ip": client_ip,
+                    "attempt_count": rate_limit_decision.count,
+                },
+            )
+            db.commit()
+            raise
         try:
             result = handle_publish_callback(
                 db,
@@ -685,6 +771,7 @@ def create_app(
                 "job_status": result.status,
                 "external_id": result.external_id,
                 "failure_category": result.failure_category,
+                "client_ip": client_ip,
             },
         )
         db.commit()
@@ -840,6 +927,17 @@ def _auth_user_to_response(user: User) -> AuthUserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
     )
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for.strip():
+        return forwarded_for.split(",", 1)[0].strip()
+    client = request.client
+    if client is not None and client.host:
+        return client.host
+    return "unknown"
+
 
 
 def _validate_publish_callback_secret(

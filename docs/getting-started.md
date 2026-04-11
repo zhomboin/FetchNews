@@ -39,6 +39,7 @@ docker compose up api worker beat web redis
 - Compose 不再默认拉起 `PostgreSQL` 容器
 - 应用容器通过 `host.docker.internal` 访问宿主机 `PostgreSQL`
 - 在 `api`、`worker`、`beat` 启动前，应先执行 migration
+- 使用 `PostgreSQL` 且 `APP_DATABASE_BOOTSTRAP_MODE=skip`（或 `auto` 解析为 `skip`）时，首次启动前必须先执行 `alembic upgrade head`，否则应用不会自动建表
 
 ## 环境变量配置
 
