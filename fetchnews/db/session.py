@@ -1,7 +1,8 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from fetchnews.db.base import Base
@@ -32,6 +33,25 @@ def resolve_database_bootstrap_mode(
     if database_url.startswith("sqlite"):
         return "create_all"
     return "skip"
+
+
+def verify_database_connection(engine: object, *, database_url: str) -> None:
+    """Actively probe the database with ``SELECT 1``.
+
+    For non-sqlite URLs we require the database to be reachable at startup so
+    that misconfigurations (e.g. compose assumes a host PostgreSQL that is not
+    running) surface immediately instead of failing on the first request.
+    """
+
+    if database_url.startswith("sqlite"):
+        return
+    try:
+        with engine.connect() as connection:  # type: ignore[attr-defined]
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise RuntimeError(
+            f"database connectivity check failed for {database_url!r}: {exc}"
+        ) from exc
 
 
 def init_database(

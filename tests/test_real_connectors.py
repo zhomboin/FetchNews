@@ -322,7 +322,7 @@ def test_paperswithcode_connector_prefers_api_next_cursor(monkeypatch: pytest.Mo
     assert len(result.items) == 1
     assert result.next_cursor == "https://paperswithcode.com/api/v1/papers?page=2"
 
-def test_huggingface_connector_returns_no_items_when_cursor_falls_out_of_current_page(
+def test_huggingface_connector_falls_back_to_full_page_when_cursor_rolled_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class StubResponse:
@@ -353,5 +353,11 @@ def test_huggingface_connector_returns_no_items_when_cursor_falls_out_of_current
 
     result = HuggingFacePapersConnector().fetch(source)
 
-    assert result.items == []
+    assert [item.external_id for item in result.items] == [
+        "/papers/hf-paper-3",
+        "/papers/hf-paper-2",
+    ]
     assert result.next_cursor == "/papers/hf-paper-3"
+    for item in result.items:
+        assert item.metadata["published_at_is_synthetic"] is True
+        assert "fetched_at" in item.metadata

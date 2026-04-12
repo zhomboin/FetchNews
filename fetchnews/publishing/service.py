@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,11 @@ from fetchnews.publishing.platform_errors import classify_publish_failure
 from fetchnews.publishing.real_publishers import RealTelegramPublisher, RealWeChatPublisher, RealXPublisher
 from fetchnews.schemas import PublishDispatchResponse, PublishJobResponse, PublishPollResponse
 from fetchnews.settings import Settings
+
+
+logger = logging.getLogger(__name__)
+
+PLACEHOLDER_REAL_PLATFORMS: frozenset[str] = frozenset({"wechat", "x"})
 
 
 PublisherRegistry = dict[str, PublisherConnector]
@@ -35,10 +41,12 @@ def build_default_publisher_registry(settings: Settings | None = None) -> Publis
     wechat_connector: PublisherConnector = mock_connector
     if resolved_settings.wechat_app_id and uses_selected_platform("wechat"):
         wechat_connector = RealWeChatPublisher(app_id=resolved_settings.wechat_app_id)
+        _warn_placeholder_real_publisher("wechat")
 
     x_connector: PublisherConnector = mock_connector
     if resolved_settings.x_bearer_token and uses_selected_platform("x"):
         x_connector = RealXPublisher(bearer_token=resolved_settings.x_bearer_token)
+        _warn_placeholder_real_publisher("x")
 
     return {
         "wechat": wechat_connector,
@@ -138,7 +146,10 @@ def dispatch_due_publish_jobs(
             )
             continue
         job.provider_job_id = submission.provider_job_id
-        job.provider_payload = submission.provider_payload
+        job.provider_payload = _merge_dispatch_provider_payload(
+            previous=job.provider_payload,
+            submitted=submission.provider_payload,
+        )
         job.error_message = None
         job.failure_category = None
         job.last_provider_status = str(submission.provider_payload.get("provider_status") or "submitted")
@@ -262,8 +273,18 @@ def write_publish_job_result(
     return publish_job_to_response(job)
 
 
+OPERATIONAL_PROVIDER_PAYLOAD_KEYS: frozenset[str] = frozenset(
+    {
+        "external_id",
+        "provider_status",
+        "poll_deadline_at",
+    }
+)
+
+
 def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     preserved_failure_window_state = _extract_failure_window_state(job)
+    archived_payload = _archive_provider_payload_for_retry(job)
     job.retries += 1
     job.status = PublishJobStatus.SCHEDULED
     job.external_id = None
@@ -271,10 +292,97 @@ def retry_publish_job(session: Session, job: PublishJob) -> PublishJobResponse:
     job.provider_job_id = None
     job.failure_category = None
     job.last_provider_status = None
-    job.provider_payload = preserved_failure_window_state
+    job.provider_payload = {
+        **archived_payload,
+        **preserved_failure_window_state,
+    }
     _sync_article_status(session, job.article_id)
     session.flush()
     return publish_job_to_response(job)
+
+
+def _warn_placeholder_real_publisher(platform: str) -> None:
+    """Emit a loud warning when a placeholder "real" publisher is wired in.
+
+    ``RealWeChatPublisher`` / ``RealXPublisher`` today are skeletons: they do
+    not call the actual external API. Operators that set
+    ``APP_WECHAT_APP_ID`` / ``APP_X_BEARER_TOKEN`` need to know they are
+    switching from a mock connector to a connector that *looks* real but
+    still short-circuits submission. Without this log the switch is silent.
+    """
+
+    logger.warning(
+        "using placeholder real publisher for %s: "
+        "RealWeChatPublisher / RealXPublisher are skeletons and do not yet "
+        "call the actual external API",
+        platform,
+    )
+
+
+def _merge_dispatch_provider_payload(
+    *,
+    previous: dict[str, object] | None,
+    submitted: dict[str, object],
+) -> dict[str, object]:
+    """Merge the freshly submitted payload with history from previous attempts.
+
+    The freshly submitted payload from the connector is the source of truth for
+    operational state (``dispatch_key``, ``poll_deadline_at``, ``external_id``,
+    etc.). However we must not drop ``retry_history`` accumulated across retry
+    attempts — otherwise an operator can't see what was tried before.
+    """
+
+    merged = dict(submitted)
+    previous_payload = dict(previous or {})
+    retry_history = previous_payload.get("retry_history")
+    if isinstance(retry_history, list) and retry_history:
+        merged["retry_history"] = [
+            dict(entry) for entry in retry_history if isinstance(entry, dict)
+        ]
+    return merged
+
+
+def _archive_provider_payload_for_retry(job: PublishJob) -> dict[str, object]:
+    """Snapshot the current provider_payload into a history list before retry.
+
+    The returned dict preserves the historical snapshot (under ``retry_history``)
+    and drops only the operational keys that will be repopulated on the next
+    dispatch. This keeps audit / debug visibility into prior attempts while
+    ensuring the next ``dispatch_due_publish_jobs`` call starts from a clean
+    operational state.
+    """
+
+    current_payload = dict(job.provider_payload or {})
+    if not current_payload:
+        return {}
+
+    retry_history_raw = current_payload.pop("retry_history", None)
+    retry_history: list[dict[str, object]] = []
+    if isinstance(retry_history_raw, list):
+        retry_history = [dict(entry) for entry in retry_history_raw if isinstance(entry, dict)]
+
+    snapshot = {
+        key: value
+        for key, value in current_payload.items()
+        if key not in {"last_failure_category", "last_failure_at"}
+    }
+    snapshot_entry: dict[str, object] = {
+        "retries_before": job.retries,
+        "provider_job_id": job.provider_job_id,
+        "failure_category": job.failure_category,
+        "error_message": job.error_message,
+        "last_provider_status": job.last_provider_status,
+        "payload": snapshot,
+    }
+    retry_history.append(snapshot_entry)
+
+    cleaned = {
+        key: value
+        for key, value in current_payload.items()
+        if key not in OPERATIONAL_PROVIDER_PAYLOAD_KEYS
+    }
+    cleaned["retry_history"] = retry_history
+    return cleaned
 
 
 def write_publish_job_feedback(
@@ -429,7 +537,17 @@ def _sync_article_status(session: Session, article_id: int) -> None:
         article.status = ArticleStatus.PUBLISHED
         return
 
-    if PublishJobStatus.FAILED in statuses:
+    # All jobs have reached a terminal state (PUBLISHED or FAILED) with a mix
+    # of both — the article was partially published. We expose this as a
+    # distinct state so the workbench can show "some platforms succeeded" and
+    # operators can retry only the failed ones.
+    terminal_statuses = {PublishJobStatus.PUBLISHED, PublishJobStatus.FAILED}
+    if statuses <= terminal_statuses and PublishJobStatus.PUBLISHED in statuses:
+        article.status = ArticleStatus.PARTIALLY_PUBLISHED
+        return
+
+    # Only downgrade to FAILED when every job has failed terminally.
+    if statuses == {PublishJobStatus.FAILED}:
         article.status = ArticleStatus.FAILED
         return
 

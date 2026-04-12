@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import json
 import secrets
+import threading
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -35,7 +37,6 @@ def hash_password(password: str) -> str:
     return f"{PASSWORD_SCHEME}${PASSWORD_ITERATIONS}${salt}${encoded_key}"
 
 
-
 def verify_password(password: str, stored_hash: str) -> bool:
     if not stored_hash.startswith(f"{PASSWORD_SCHEME}$"):
         return secrets.compare_digest(password, stored_hash)
@@ -56,10 +57,8 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(computed, encoded_key)
 
 
-
 def role_satisfies(actual_role: str, required_role: str) -> bool:
     return ROLE_PRIORITY.get(UserRole(actual_role), -1) >= ROLE_PRIORITY.get(UserRole(required_role), 99)
-
 
 
 def ensure_bootstrap_admin(session: Session, settings: Settings) -> User | None:
@@ -82,7 +81,6 @@ def ensure_bootstrap_admin(session: Session, settings: Settings) -> User | None:
     return user
 
 
-
 def authenticate_user(session: Session, username: str, password: str) -> User | None:
     user = session.scalar(select(User).where(User.username == username))
     if user is None or not user.is_active:
@@ -93,7 +91,6 @@ def authenticate_user(session: Session, username: str, password: str) -> User | 
     user.last_login_at = datetime.now(UTC)
     session.flush()
     return user
-
 
 
 def create_access_token(user: User, settings: Settings, *, now: datetime | None = None) -> tuple[str, datetime]:
@@ -110,7 +107,6 @@ def create_access_token(user: User, settings: Settings, *, now: datetime | None 
     return token, expires_at
 
 
-
 def decode_access_token(token: str, settings: Settings, *, now: datetime | None = None) -> dict[str, Any] | None:
     try:
         payload = _decode_token(token, settings.auth_secret_key)
@@ -123,16 +119,14 @@ def decode_access_token(token: str, settings: Settings, *, now: datetime | None 
     return payload
 
 
-
-# 非标准 JWT：这里只编码 payload.signature 两段式 HMAC token，
-# 没有 JOSE header / alg / kid / aud / iss，客户端不能按标准 JWT 解码。
+# ??? JWT?????? payload.signature ??? HMAC token?
+# ?? JOSE header / alg / kid / aud / iss????????? JWT ???
 def _encode_token(payload: dict[str, Any], secret_key: str) -> str:
     payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     encoded_payload = _urlsafe_b64encode(payload_json)
     signature = hmac.new(secret_key.encode("utf-8"), encoded_payload.encode("utf-8"), hashlib.sha256).digest()
     encoded_signature = _urlsafe_b64encode(signature)
     return f"{encoded_payload}.{encoded_signature}"
-
 
 
 def _decode_token(token: str, secret_key: str) -> dict[str, Any]:
@@ -152,12 +146,70 @@ def _decode_token(token: str, secret_key: str) -> dict[str, Any]:
     return payload
 
 
-
 def _urlsafe_b64encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
-
 
 
 def _urlsafe_b64decode(value: str) -> bytes:
     padding = "=" * ((4 - len(value) % 4) % 4)
     return base64.urlsafe_b64decode(f"{value}{padding}")
+
+
+class LoginRateLimiter:
+    """In-memory sliding-window limiter for login failures."""
+
+    def __init__(
+        self,
+        *,
+        max_failures: int,
+        window_seconds: int,
+        block_seconds: int,
+    ) -> None:
+        self._max_failures = max(max_failures, 1)
+        self._window = timedelta(seconds=max(window_seconds, 1))
+        self._block = timedelta(seconds=max(block_seconds, 1))
+        self._failures: dict[tuple[str, str], deque[datetime]] = {}
+        self._blocked_until: dict[tuple[str, str], datetime] = {}
+        self._lock = threading.Lock()
+
+    def check(self, username: str, client_ip: str, *, now: datetime | None = None) -> datetime | None:
+        current_time = now or datetime.now(UTC)
+        key = (username or "", client_ip or "")
+        with self._lock:
+            blocked_until = self._blocked_until.get(key)
+            if blocked_until is None:
+                return None
+            if current_time >= blocked_until:
+                self._blocked_until.pop(key, None)
+                self._failures.pop(key, None)
+                return None
+            return blocked_until
+
+    def register_failure(self, username: str, client_ip: str, *, now: datetime | None = None) -> datetime | None:
+        current_time = now or datetime.now(UTC)
+        key = (username or "", client_ip or "")
+        with self._lock:
+            bucket = self._failures.setdefault(key, deque())
+            bucket.append(current_time)
+            window_start = current_time - self._window
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+            if len(bucket) >= self._max_failures:
+                blocked_until = current_time + self._block
+                self._blocked_until[key] = blocked_until
+                return blocked_until
+            return None
+
+    def register_success(self, username: str, client_ip: str) -> None:
+        key = (username or "", client_ip or "")
+        with self._lock:
+            self._failures.pop(key, None)
+            self._blocked_until.pop(key, None)
+
+
+def build_login_rate_limiter(settings: Settings) -> LoginRateLimiter:
+    return LoginRateLimiter(
+        max_failures=settings.login_rate_limit_max_failures,
+        window_seconds=settings.login_rate_limit_window_seconds,
+        block_seconds=settings.login_rate_limit_block_seconds,
+    )

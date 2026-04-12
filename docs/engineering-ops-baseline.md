@@ -98,13 +98,23 @@
 - `dispatch_key` 幂等键
 - callback 写回与轮询收敛
 - 发布失败分类 `failure_category`
-- 平台冷却窗口限流
+- 平台 `rate_limit` 失败后的冷却回避窗口
 - 失败后按任务粒度重试
+
+关于"平台冷却窗口限流"的准确语义：
+
+- 它**不是**按秒主动节流的令牌桶
+- 实际行为：一旦某个平台最近一次失败被 `classify_publish_failure` 归类为
+  `rate_limit`，在 `APP_PUBLISH_RATE_LIMIT_WINDOW_SECONDS` 时间内，
+  `dispatch_due_publish_jobs` 会跳过该平台上的新任务，并将这些被跳过的任务
+  的 `last_provider_status` 标记为 `rate_limited`
+- 如果从未发生 `rate_limit` 分类的失败，成功任务之间不会有任何节流
+- 实现入口：`fetchnews/publishing/service.py::_platform_rate_limit_window_open`
 
 当前边界：
 
 - `wechat / x` 仍是适配器骨架，不是可直接上线的真实平台集成
-- 平台限流当前为服务内冷却窗口，不是分布式令牌桶
+- 平台限流当前为服务内失败回避窗口，不是分布式令牌桶
 
 关键文件：
 
@@ -186,7 +196,7 @@ npm run test:run
    - `hf-daily`
    - `paperswithcode-latest`
 3. 保持来源重试次数为 `2`
-4. 保持平台冷却窗口为 `300` 秒
+4. 保持平台 `rate_limit` 失败冷却窗口为 `300` 秒
 5. 每次扩大范围前至少观察 24 小时
 
 ## 仍待补齐的能力
@@ -207,7 +217,7 @@ npm run test:run
 
 - `telegram` 真实发布 MVP
 - 真实来源连接器认证头、分页与保守回退
-- 发布平台冷却窗口限流
+- 发布平台 `rate_limit` 失败冷却回避窗口
 - 来源最小重试
 - source 重复失败告警
 - 小流量验收 Runbook

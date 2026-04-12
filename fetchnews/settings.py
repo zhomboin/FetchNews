@@ -2,6 +2,15 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+INSECURE_AUTH_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "fetchnews-dev-secret",
+        "change-this-before-exposing-the-console",
+    }
+)
+INSECURE_ADMIN_PASSWORDS: frozenset[str] = frozenset({"admin-secret", "admin"})
+
+
 class Settings(BaseSettings):
     app_name: str = Field(default="FetchNews")
     environment: str = Field(default="development")
@@ -27,6 +36,9 @@ class Settings(BaseSettings):
     auth_enabled: bool = Field(default=False)
     auth_secret_key: str = Field(default="fetchnews-dev-secret")
     access_token_expire_minutes: int = Field(default=720)
+    login_rate_limit_max_failures: int = Field(default=5)
+    login_rate_limit_window_seconds: int = Field(default=60)
+    login_rate_limit_block_seconds: int = Field(default=300)
     bootstrap_admin_username: str = Field(default="admin")
     bootstrap_admin_password: str = Field(default="admin-secret")
     bootstrap_admin_display_name: str = Field(default="FetchNews Admin")
@@ -36,3 +48,21 @@ class Settings(BaseSettings):
         env_prefix="APP_",
         extra="ignore",
     )
+
+
+def validate_production_secrets(settings: "Settings") -> None:
+    """Fail fast when production is still using documented insecure defaults."""
+
+    if settings.environment != "production":
+        return
+
+    problems: list[str] = []
+    if settings.auth_enabled and settings.auth_secret_key in INSECURE_AUTH_SECRET_KEYS:
+        problems.append("APP_AUTH_SECRET_KEY must be overridden in production")
+    if settings.auth_enabled and settings.bootstrap_admin_password in INSECURE_ADMIN_PASSWORDS:
+        problems.append("APP_BOOTSTRAP_ADMIN_PASSWORD must be overridden in production")
+    if not (settings.publish_callback_secret or "").strip():
+        problems.append("APP_PUBLISH_CALLBACK_SECRET must be configured in production")
+
+    if problems:
+        raise RuntimeError("insecure production configuration detected: " + "; ".join(problems))

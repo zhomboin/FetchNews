@@ -20,6 +20,7 @@ class ArticleStatus(StrEnum):
     READY = 'ready'
     SCHEDULED = 'scheduled'
     PUBLISHED = 'published'
+    PARTIALLY_PUBLISHED = 'partially_published'
     FAILED = 'failed'
 
 

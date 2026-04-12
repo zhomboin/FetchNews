@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import math
 import secrets
 from threading import Lock
 from typing import Any, Callable
@@ -14,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
-from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
+from fetchnews.db.session import create_engine_and_factory, init_database, session_scope, verify_database_connection
 from fetchnews.models import (
     ArticleDraft,
     AuditLog,
@@ -27,7 +28,14 @@ from fetchnews.models import (
     UserRole,
 )
 from fetchnews.core.audit import record_audit_log
-from fetchnews.core.security import authenticate_user, create_access_token, decode_access_token, ensure_bootstrap_admin, role_satisfies
+from fetchnews.core.security import (
+    authenticate_user,
+    build_login_rate_limiter,
+    create_access_token,
+    decode_access_token,
+    ensure_bootstrap_admin,
+    role_satisfies,
+)
 from fetchnews.ops.service import build_ops_summary
 from fetchnews.pipeline.article_service import (
     article_to_response,
@@ -83,7 +91,7 @@ from fetchnews.schemas import (
     StoryCreatePayload,
     StoryResponse,
 )
-from fetchnews.settings import Settings
+from fetchnews.settings import Settings, validate_production_secrets
 from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.governance import annotate_source_specs
 from fetchnews.sources.connectors import build_default_connector_registry
@@ -142,7 +150,9 @@ class AppState:
     ) -> None:
         self.settings = settings
         self.engine, self.session_factory = create_engine_and_factory(settings.database_url)
+        verify_database_connection(self.engine, database_url=settings.database_url)
         if settings.environment == "test":
+            _assert_destructive_reset_is_safe(settings.database_url)
             Base.metadata.drop_all(bind=self.engine)
         init_database(
             self.engine,
@@ -160,6 +170,7 @@ class AppState:
         )
         if publisher_overrides:
             self.publisher_registry.update(publisher_overrides)
+        self.login_rate_limiter = build_login_rate_limiter(settings)
         self.model_registry = {
             "user": User,
             "audit_log": AuditLog,
@@ -180,6 +191,7 @@ def create_app(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
+    validate_production_secrets(resolved_settings)
     resolved_callback_secret = _resolve_publish_callback_secret(resolved_settings)
     state = AppState(
         resolved_settings,
@@ -256,12 +268,26 @@ def create_app(
         return AuthConfigResponse(auth_enabled=resolved_settings.auth_enabled)
 
     @app.post("/auth/login", response_model=AuthTokenResponse)
-    def login(payload: AuthLoginRequest, db: Session = Depends(get_db)) -> AuthTokenResponse:
+    def login(
+        payload: AuthLoginRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ) -> AuthTokenResponse:
         if not resolved_settings.auth_enabled:
             raise HTTPException(status_code=400, detail="Authentication is disabled")
+        client_ip = _resolve_client_ip(request)
+        blocked_until = state.login_rate_limiter.check(payload.username, client_ip)
+        if blocked_until is not None:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts, try again later",
+                headers={"Retry-After": str(_seconds_until(blocked_until))},
+            )
         user = authenticate_user(db, payload.username, payload.password)
         if user is None:
+            state.login_rate_limiter.register_failure(payload.username, client_ip)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        state.login_rate_limiter.register_success(payload.username, client_ip)
         access_token, expires_at = create_access_token(user, resolved_settings)
         record_audit_log(
             db,
@@ -938,6 +964,23 @@ def _resolve_client_ip(request: Request) -> str:
         return client.host
     return "unknown"
 
+
+def _seconds_until(when: datetime) -> int:
+    delta = (when - datetime.now(UTC)).total_seconds()
+    return max(1, math.ceil(delta))
+
+
+def _assert_destructive_reset_is_safe(database_url: str) -> None:
+    normalized = database_url.lower()
+    if normalized.startswith("sqlite"):
+        return
+    if "test" in normalized:
+        return
+    raise RuntimeError(
+        "refusing to drop_all on a non-sqlite, non-test database: "
+        f"{database_url!r}. Set APP_ENVIRONMENT to something other than 'test', "
+        "or point APP_DATABASE_URL at a sqlite file or a DSN containing 'test'."
+    )
 
 
 def _validate_publish_callback_secret(

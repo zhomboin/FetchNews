@@ -372,12 +372,13 @@ def test_development_environment_uses_stable_default_callback_secret() -> None:
 
 
 def test_create_app_requires_explicit_callback_secret_outside_development_and_test() -> None:
-    with pytest.raises(RuntimeError, match="publish callback secret must be configured"):
+    with pytest.raises(RuntimeError, match="APP_PUBLISH_CALLBACK_SECRET"):
         create_app(
             Settings(
                 database_url="sqlite:///./test_phase07_missing_callback_secret.db",
                 redis_url="redis://localhost:6379/0",
                 environment="production",
+                auth_enabled=False,
             )
         )
 
