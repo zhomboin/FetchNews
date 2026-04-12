@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 import os
+from pathlib import Path
 
 os.environ.setdefault("APP_DATABASE_URL", "sqlite:///./test_import_bootstrap.db")
 
@@ -276,6 +277,62 @@ def test_ops_summary_emits_alert_for_repeated_source_failures() -> None:
         assert "hf-daily" in source_alert["summary"]
 
 
+
+def test_login_rate_limiter_blocks_after_repeated_failures() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_login_rate_limit.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            auth_enabled=True,
+            bootstrap_admin_username="admin",
+            bootstrap_admin_password="admin-secret",
+            login_rate_limit_max_failures=3,
+            login_rate_limit_window_seconds=60,
+            login_rate_limit_block_seconds=300,
+        )
+    )
+
+    with TestClient(app) as client:
+        for _ in range(3):
+            response = client.post("/auth/login", json={"username": "admin", "password": "wrong"})
+            assert response.status_code == 401
+
+        blocked = client.post("/auth/login", json={"username": "admin", "password": "wrong"})
+        assert blocked.status_code == 429
+        assert "Retry-After" in blocked.headers
+
+        still_blocked = client.post("/auth/login", json={"username": "admin", "password": "admin-secret"})
+        assert still_blocked.status_code == 429
+
+
+def test_login_rate_limiter_clears_on_successful_login() -> None:
+    app = create_app(
+        Settings(
+            database_url="sqlite:///./test_login_rate_limit_success.db",
+            redis_url="redis://localhost:6379/0",
+            environment="test",
+            auth_enabled=True,
+            bootstrap_admin_username="admin",
+            bootstrap_admin_password="admin-secret",
+            login_rate_limit_max_failures=3,
+            login_rate_limit_window_seconds=60,
+            login_rate_limit_block_seconds=300,
+        )
+    )
+
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.post("/auth/login", json={"username": "admin", "password": "wrong"})
+            assert response.status_code == 401
+
+        success = client.post("/auth/login", json={"username": "admin", "password": "admin-secret"})
+        assert success.status_code == 200
+
+        for _ in range(2):
+            response = client.post("/auth/login", json={"username": "admin", "password": "wrong"})
+            assert response.status_code == 401
+
 def test_postgres_bootstrap_mode_skip_does_not_create_tables() -> None:
     engine, _factory = create_engine_and_factory("sqlite:///./test_bootstrap_skip.db")
 
@@ -283,3 +340,20 @@ def test_postgres_bootstrap_mode_skip_does_not_create_tables() -> None:
 
     inspector = inspect(engine)
     assert inspector.get_table_names() == []
+
+
+def test_security_module_warns_that_access_tokens_are_not_standard_jwt() -> None:
+    security_source = (Path(__file__).resolve().parents[1] / "fetchnews" / "core" / "security.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "??? JWT" in security_source
+
+
+
+def test_getting_started_explicitly_requires_alembic_before_postgres_auto_bootstrap_skip_startup() -> None:
+    getting_started = (Path(__file__).resolve().parents[1] / "docs" / "getting-started.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "?????????? `alembic upgrade head`" in getting_started

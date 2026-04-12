@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -299,6 +300,40 @@ def test_publish_callback_requires_callback_secret() -> None:
         assert authorized_response.json()["status"] == "published"
 
 
+def test_publish_callback_rate_limits_repeated_ip_and_surfaces_security_alert() -> None:
+    settings = Settings(
+        database_url="sqlite:///./test_phase07_callback_ip_limit.db",
+        redis_url="redis://localhost:6379/0",
+        environment="test",
+        publish_callback_secret="phase07-secret",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        responses = [
+            client.post(
+                "/publish-jobs/callback/telegram",
+                json={"provider_job_id": "missing-job", "status": "published"},
+                headers={
+                    "X-FetchNews-Callback-Secret": "wrong-secret",
+                    "X-Forwarded-For": "203.0.113.9",
+                },
+            )
+            for _ in range(4)
+        ]
+
+        assert [response.status_code for response in responses[:3]] == [401, 401, 401]
+        assert responses[3].status_code == 429
+        assert responses[3].headers["Retry-After"] == "300"
+
+        summary_response = client.get("/ops/summary")
+        assert summary_response.status_code == 200
+        alerts = summary_response.json()["alerts"]
+        security_alert = next(alert for alert in alerts if alert["category"] == "security")
+        assert security_alert["target"] == "203.0.113.9"
+        assert security_alert["count"] == 4
+
+
 def test_development_environment_uses_stable_default_callback_secret() -> None:
     app = create_app(
         Settings(
@@ -337,12 +372,13 @@ def test_development_environment_uses_stable_default_callback_secret() -> None:
 
 
 def test_create_app_requires_explicit_callback_secret_outside_development_and_test() -> None:
-    with pytest.raises(RuntimeError, match="publish callback secret must be configured"):
+    with pytest.raises(RuntimeError, match="APP_PUBLISH_CALLBACK_SECRET"):
         create_app(
             Settings(
                 database_url="sqlite:///./test_phase07_missing_callback_secret.db",
                 redis_url="redis://localhost:6379/0",
                 environment="production",
+                auth_enabled=False,
             )
         )
 
@@ -538,6 +574,80 @@ def test_real_telegram_publisher_submit_calls_send_message_api(monkeypatch: pyte
         "chat": {"id": "-100123"},
         "text": "Phase 07 Telegram publish",
     }
+
+
+def test_real_telegram_publisher_exposes_async_submit_for_non_blocking_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class StubAsyncResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "result": {
+                    "message_id": 43,
+                    "chat": {"id": "-100123"},
+                    "text": "Phase 07 async Telegram publish",
+                },
+            }
+
+    class StubAsyncClient:
+        def __init__(self, *, base_url: str, timeout: float) -> None:
+            captured["base_url"] = base_url
+            captured["timeout"] = timeout
+
+        async def __aenter__(self) -> "StubAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, path: str, json: dict[str, object]) -> StubAsyncResponse:
+            captured["path"] = path
+            captured["json"] = json
+            return StubAsyncResponse()
+
+    monkeypatch.setattr("fetchnews.publishing.real_publishers.httpx.AsyncClient", StubAsyncClient)
+
+    publisher = RealTelegramPublisher(bot_token="telegram-token", chat_id="-100123")
+    article = ArticleDraft(
+        id=9,
+        target_date=date(2026, 4, 6),
+        title="Phase 07 title",
+        summary="Phase 07 summary",
+        body="Phase 07 body",
+        story_ids=[1],
+        story_keys=["phase07-story"],
+    )
+    variant = PostVariant(article_id=9, platform="telegram", content="Phase 07 async Telegram publish")
+    job = PublishJob(
+        id=32,
+        article_id=9,
+        platform="telegram",
+        scheduled_for=datetime(2026, 4, 6, 10, 0, tzinfo=UTC),
+        status=PublishJobStatus.SCHEDULED,
+        retries=0,
+        dispatch_key="dispatch-telegram-32",
+        provider_payload={},
+        performance_metrics={},
+    )
+
+    submission = asyncio.run(publisher.submit_async(job, article, variant))
+
+    assert captured["base_url"] == "https://api.telegram.org"
+    assert captured["timeout"] == 10.0
+    assert captured["path"] == "/bottelegram-token/sendMessage"
+    assert captured["json"] == {
+        "chat_id": "-100123",
+        "text": "Phase 07 async Telegram publish",
+        "disable_web_page_preview": False,
+    }
+    assert submission.provider_job_id == "telegram-message-43"
+    assert submission.provider_payload["external_id"] == "43"
 
 
 def test_dispatch_due_publish_jobs_marks_job_failed_when_submit_raises() -> None:

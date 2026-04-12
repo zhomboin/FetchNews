@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import time
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -126,7 +128,7 @@ def _sync_sources(session: Session, source_specs: list[SourceSpec], settings: Se
             source.priority = spec.priority
             source.kind = spec.kind
             source.enabled = spec.enabled
-            source.config = resolved_config
+            source.config = {**dict(source.config or {}), **resolved_config}
         synced[spec.slug] = source
 
     session.flush()
@@ -162,10 +164,34 @@ def _fetch_with_retries(
     for attempt_index in range(max_attempts):
         try:
             return _normalize_fetched_batch(connector.fetch(source))
-        except Exception:
+        except Exception as exc:
             if attempt_index == max_attempts - 1:
                 raise
+            retry_delay_seconds = _resolve_retry_delay_seconds(exc, attempt_index)
+            if retry_delay_seconds > 0:
+                time.sleep(retry_delay_seconds)
     raise RuntimeError("Connector retry loop exited unexpectedly")
+
+
+def _resolve_retry_delay_seconds(exc: Exception, attempt_index: int) -> float:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        if response is not None and response.status_code in {403, 429}:
+            retry_after_header = response.headers.get("Retry-After")
+            retry_after_seconds = _coerce_retry_after_seconds(retry_after_header)
+            if retry_after_seconds is not None:
+                return retry_after_seconds
+    return float(min(2 ** attempt_index, 8))
+
+
+def _coerce_retry_after_seconds(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        retry_after_seconds = float(value)
+    except ValueError:
+        return None
+    return retry_after_seconds if retry_after_seconds > 0 else None
 
 
 def _persist_raw_items(session: Session, source: Source, run: IngestRun, items: list[RawIngestedItem]) -> int:

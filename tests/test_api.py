@@ -289,7 +289,7 @@ def test_publish_job_result_writeback_and_retry_updates_article_status() -> None
 
         article_failed = client.get(f"/articles/{article_id}")
         assert article_failed.status_code == 200
-        assert article_failed.json()["status"] == "failed"
+        assert article_failed.json()["status"] == "partially_published"
 
         retry_response = client.post(f"/publish-jobs/{second_job_id}/retry")
         assert retry_response.status_code == 200
@@ -527,7 +527,7 @@ def test_ops_summary_reports_ingest_and_publish_metrics() -> None:
         assert summary_payload["stories_approved"] >= 1
         assert summary_payload["stories_pending"] >= 1
         assert summary_payload["articles_total"] == 1
-        assert summary_payload["articles_failed"] == 1
+        assert summary_payload["articles_failed"] == 0
         assert summary_payload["publish_jobs_total"] == 2
         assert summary_payload["publish_jobs_published"] == 1
         assert summary_payload["publish_jobs_failed"] == 1

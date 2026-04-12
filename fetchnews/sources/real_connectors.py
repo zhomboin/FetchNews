@@ -84,7 +84,7 @@ class HuggingFacePapersConnector:
                 author=str(entry.get("author") or "Hugging Face"),
                 published_at=_coerce_datetime(entry.get("published_at")),
                 content=str(entry.get("summary") or entry.get("title") or "Hugging Face paper"),
-                metadata={"snapshot": dict(entry), "source_type": "huggingface_paper"},
+                metadata=_build_huggingface_metadata(entry),
             )
             for entry in entries
         ]
@@ -177,17 +177,34 @@ def _extract_huggingface_anchor_entries(root: HTMLParser) -> list[dict[str, Any]
 
 
 def _build_huggingface_entry(*, title: str, href: str) -> dict[str, Any]:
+    fetched_at = datetime.now(UTC).isoformat()
     return {
         "id": href,
         "title": title,
         "url": href if href.startswith("http") else f"https://huggingface.co{href}",
         "summary": title,
-        "published_at": datetime.now(UTC).isoformat(),
+        "published_at": fetched_at,
+        "published_at_is_synthetic": True,
+        "fetched_at": fetched_at,
+    }
+
+
+def _build_huggingface_metadata(entry: dict[str, Any]) -> dict[str, Any]:
+    snapshot = dict(entry)
+    is_synthetic = bool(snapshot.pop("published_at_is_synthetic", False))
+    fetched_at = str(snapshot.pop("fetched_at", None) or datetime.now(UTC).isoformat())
+    return {
+        "snapshot": snapshot,
+        "source_type": "huggingface_paper",
+        "fetched_at": fetched_at,
+        "published_at_is_synthetic": is_synthetic,
     }
 
 
 def _build_request_headers(source: Source) -> dict[str, str]:
     headers = {"User-Agent": "FetchNews/0.1"}
+    if source.platform == "github" and source.kind == "api":
+        headers["Accept"] = "application/vnd.github+json"
     auth_token = _coerce_cursor(source.config.get("auth_token"))
     if auth_token is not None:
         headers["Authorization"] = f"Bearer {auth_token}"
@@ -269,7 +286,7 @@ def _filter_records_by_id(
         filtered.append(record)
     if cursor_found:
         return filtered, first_id
-    return [], first_id
+    return records, first_id
 
 
 def _coerce_author(value: object) -> str | None:

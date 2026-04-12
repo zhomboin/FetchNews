@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+import math
 import secrets
+from threading import Lock
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fetchnews.db.base import Base
-from fetchnews.db.session import create_engine_and_factory, init_database, session_scope
+from fetchnews.db.session import create_engine_and_factory, init_database, session_scope, verify_database_connection
 from fetchnews.models import (
     ArticleDraft,
     AuditLog,
@@ -23,7 +28,14 @@ from fetchnews.models import (
     UserRole,
 )
 from fetchnews.core.audit import record_audit_log
-from fetchnews.core.security import authenticate_user, create_access_token, decode_access_token, ensure_bootstrap_admin, role_satisfies
+from fetchnews.core.security import (
+    authenticate_user,
+    build_login_rate_limiter,
+    create_access_token,
+    decode_access_token,
+    ensure_bootstrap_admin,
+    role_satisfies,
+)
 from fetchnews.ops.service import build_ops_summary
 from fetchnews.pipeline.article_service import (
     article_to_response,
@@ -79,7 +91,7 @@ from fetchnews.schemas import (
     StoryCreatePayload,
     StoryResponse,
 )
-from fetchnews.settings import Settings
+from fetchnews.settings import Settings, validate_production_secrets
 from fetchnews.sources.catalog import get_source_specs
 from fetchnews.sources.governance import annotate_source_specs
 from fetchnews.sources.connectors import build_default_connector_registry
@@ -87,6 +99,46 @@ from fetchnews.sources.service import execute_ingest_run, ingest_run_to_response
 
 
 DEFAULT_DEVELOPMENT_CALLBACK_SECRET = "fetchnews-dev-callback-secret"
+CALLBACK_IP_WINDOW_SECONDS = 300
+CALLBACK_IP_MAX_ATTEMPTS = 3
+
+
+@dataclass(slots=True)
+class CallbackRateLimitDecision:
+    allowed: bool
+    count: int
+    retry_after_seconds: int = 0
+
+
+class CallbackIpRateLimiter:
+    def __init__(self, *, max_attempts: int, window_seconds: int) -> None:
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self._attempts_by_ip: dict[str, deque[datetime]] = {}
+        self._lock = Lock()
+
+    def register(self, client_ip: str, *, now: datetime | None = None) -> CallbackRateLimitDecision:
+        current_time = now or datetime.now(UTC)
+        window_start = current_time - timedelta(seconds=self.window_seconds)
+        with self._lock:
+            attempts = self._attempts_by_ip.setdefault(client_ip, deque())
+            while attempts and attempts[0] < window_start:
+                attempts.popleft()
+            attempts.append(current_time)
+            allowed = len(attempts) <= self.max_attempts
+            retry_after_seconds = 0
+            if not allowed and attempts:
+                retry_after_seconds = max(
+                    self.window_seconds - int((current_time - attempts[0]).total_seconds()),
+                    1,
+                )
+            if not attempts:
+                self._attempts_by_ip.pop(client_ip, None)
+            return CallbackRateLimitDecision(
+                allowed=allowed,
+                count=len(attempts),
+                retry_after_seconds=retry_after_seconds,
+            )
 
 
 class AppState:
@@ -98,7 +150,9 @@ class AppState:
     ) -> None:
         self.settings = settings
         self.engine, self.session_factory = create_engine_and_factory(settings.database_url)
+        verify_database_connection(self.engine, database_url=settings.database_url)
         if settings.environment == "test":
+            _assert_destructive_reset_is_safe(settings.database_url)
             Base.metadata.drop_all(bind=self.engine)
         init_database(
             self.engine,
@@ -110,8 +164,13 @@ class AppState:
         if connector_overrides:
             self.connector_registry.update(connector_overrides)
         self.publisher_registry = build_default_publisher_registry(settings)
+        self.publish_callback_rate_limiter = CallbackIpRateLimiter(
+            max_attempts=CALLBACK_IP_MAX_ATTEMPTS,
+            window_seconds=CALLBACK_IP_WINDOW_SECONDS,
+        )
         if publisher_overrides:
             self.publisher_registry.update(publisher_overrides)
+        self.login_rate_limiter = build_login_rate_limiter(settings)
         self.model_registry = {
             "user": User,
             "audit_log": AuditLog,
@@ -132,6 +191,7 @@ def create_app(
     publisher_overrides: dict[str, Any] | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
+    validate_production_secrets(resolved_settings)
     resolved_callback_secret = _resolve_publish_callback_secret(resolved_settings)
     state = AppState(
         resolved_settings,
@@ -208,12 +268,26 @@ def create_app(
         return AuthConfigResponse(auth_enabled=resolved_settings.auth_enabled)
 
     @app.post("/auth/login", response_model=AuthTokenResponse)
-    def login(payload: AuthLoginRequest, db: Session = Depends(get_db)) -> AuthTokenResponse:
+    def login(
+        payload: AuthLoginRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ) -> AuthTokenResponse:
         if not resolved_settings.auth_enabled:
             raise HTTPException(status_code=400, detail="Authentication is disabled")
+        client_ip = _resolve_client_ip(request)
+        blocked_until = state.login_rate_limiter.check(payload.username, client_ip)
+        if blocked_until is not None:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts, try again later",
+                headers={"Retry-After": str(_seconds_until(blocked_until))},
+            )
         user = authenticate_user(db, payload.username, payload.password)
         if user is None:
+            state.login_rate_limiter.register_failure(payload.username, client_ip)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        state.login_rate_limiter.register_success(payload.username, client_ip)
         access_token, expires_at = create_access_token(user, resolved_settings)
         record_audit_log(
             db,
@@ -659,10 +733,48 @@ def create_app(
     def handle_job_callback(
         platform: str,
         payload: dict[str, object],
+        request: Request,
         callback_secret: str | None = Header(default=None, alias="X-FetchNews-Callback-Secret"),
         db: Session = Depends(get_db),
     ) -> PublishJobResponse:
-        _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
+        client_ip = _resolve_client_ip(request)
+        rate_limit_decision = state.publish_callback_rate_limiter.register(client_ip)
+        if not rate_limit_decision.allowed:
+            record_audit_log(
+                db,
+                actor=None,
+                action="publish.callback.rate_limited",
+                resource_type="publish_callback",
+                resource_id=platform,
+                detail={
+                    "platform": platform,
+                    "client_ip": client_ip,
+                    "attempt_count": rate_limit_decision.count,
+                },
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many callback requests from this IP",
+                headers={"Retry-After": str(rate_limit_decision.retry_after_seconds)},
+            )
+        try:
+            _validate_publish_callback_secret(callback_secret, callback_secret_value=resolved_callback_secret)
+        except HTTPException:
+            record_audit_log(
+                db,
+                actor=None,
+                action="publish.callback.secret_rejected",
+                resource_type="publish_callback",
+                resource_id=platform,
+                detail={
+                    "platform": platform,
+                    "client_ip": client_ip,
+                    "attempt_count": rate_limit_decision.count,
+                },
+            )
+            db.commit()
+            raise
         try:
             result = handle_publish_callback(
                 db,
@@ -685,6 +797,7 @@ def create_app(
                 "job_status": result.status,
                 "external_id": result.external_id,
                 "failure_category": result.failure_category,
+                "client_ip": client_ip,
             },
         )
         db.commit()
@@ -839,6 +952,34 @@ def _auth_user_to_response(user: User) -> AuthUserResponse:
         is_active=user.is_active,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
+    )
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for.strip():
+        return forwarded_for.split(",", 1)[0].strip()
+    client = request.client
+    if client is not None and client.host:
+        return client.host
+    return "unknown"
+
+
+def _seconds_until(when: datetime) -> int:
+    delta = (when - datetime.now(UTC)).total_seconds()
+    return max(1, math.ceil(delta))
+
+
+def _assert_destructive_reset_is_safe(database_url: str) -> None:
+    normalized = database_url.lower()
+    if normalized.startswith("sqlite"):
+        return
+    if "test" in normalized:
+        return
+    raise RuntimeError(
+        "refusing to drop_all on a non-sqlite, non-test database: "
+        f"{database_url!r}. Set APP_ENVIRONMENT to something other than 'test', "
+        "or point APP_DATABASE_URL at a sqlite file or a DSN containing 'test'."
     )
 
 
