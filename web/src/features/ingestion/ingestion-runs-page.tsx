@@ -1,6 +1,7 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { EmptyState, MetricGrid, PageHeader, PanelHeader, StatusPill } from "../../components/console";
 import { IngestRunRecord, SourceSpec, fetchIngestRuns, fetchSourceSpecs, triggerIngestRun } from "../../lib/api";
 
 const SOURCE_SPECS_QUERY_KEY = ["sourceSpecs"] as const;
@@ -159,6 +160,28 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
   const runs = runsQuery.data ?? [];
   const metrics = summarizeRuns(runs);
   const sourceSpecs = sourcesQuery.data ?? [];
+  const metricItems = [
+    {
+      label: "运行批次",
+      value: `${metrics.totalRuns}`,
+      note: "接口当前返回的最近采集批次",
+    },
+    {
+      label: "失败批次",
+      value: `${metrics.failedRuns}`,
+      note: "至少包含一个失败来源的批次",
+    },
+    {
+      label: "采集条目",
+      value: `${metrics.totalItems}`,
+      note: "当前可见批次累计写入的原始条目数",
+    },
+    {
+      label: "处理来源",
+      value: `${metrics.totalSources}`,
+      note: "同一时间窗内累计处理的来源次数",
+    },
+  ];
 
   function toggleSource(slug: string): void {
     setSelectedSlugs((current) =>
@@ -176,61 +199,22 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
 
   return (
     <div className="page-stack">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">采集台账</p>
-          <h1>采集运行台</h1>
-          <p className="lede">
-            在一个控制台视图里查看来源运行批次、治理调节、覆盖范围和手动触发入口，确保采集链路稳定可控。
-          </p>
-        </div>
+      <PageHeader
+        eyebrow="采集台账"
+        title="采集运行台"
+        lead="在一个控制台视图里查看来源运行批次、治理调节、覆盖范围和手动触发入口，确保采集链路稳定可控。"
+        health={health}
+        metaLabel="调度模式"
+        metaValue="默认来源按节奏运行"
+      />
 
-        <div className="hero-meta">
-          <div className="signal-pill">
-            <span className="signal-dot-live" />
-            <strong>{health}</strong>
-          </div>
-          <div className="meta-chip">
-            <span>调度模式</span>
-            <strong>默认来源按节奏运行</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="stats-grid" aria-label="采集摘要">
-        <article className="metric-cell">
-          <p>运行批次</p>
-          <strong>{metrics.totalRuns}</strong>
-          <span>接口当前返回的最近采集批次</span>
-        </article>
-        <article className="metric-cell">
-          <p>失败批次</p>
-          <strong>{metrics.failedRuns}</strong>
-          <span>至少包含一个失败来源的批次</span>
-        </article>
-        <article className="metric-cell">
-          <p>采集条目</p>
-          <strong>{metrics.totalItems}</strong>
-          <span>当前可见批次累计写入的原始条目数</span>
-        </article>
-        <article className="metric-cell">
-          <p>处理来源</p>
-          <strong>{metrics.totalSources}</strong>
-          <span>同一时间窗内累计处理的来源次数</span>
-        </article>
-      </section>
+      <MetricGrid ariaLabel="采集摘要" items={metricItems} />
 
       <section className="panel trigger-panel">
-        <header className="section-title ingestion-head">
-          <div>
-            <p>手动触发</p>
-            <h2>启动一次手动采集</h2>
-          </div>
-          <span>默认勾选 P0 来源</span>
-        </header>
+        <PanelHeader className="ingestion-head" kicker="手动触发" title="启动一次手动采集" meta="默认勾选 P0 来源" />
 
-        {sourcesQuery.isLoading ? <div className="empty-state">正在加载来源目录...</div> : null}
-        {sourcesQuery.isError ? <div className="empty-state">来源目录加载失败，请检查 `/sources` 接口。</div> : null}
+        {sourcesQuery.isLoading ? <EmptyState>正在加载来源目录...</EmptyState> : null}
+        {sourcesQuery.isError ? <EmptyState>来源目录加载失败，请检查 `/sources` 接口。</EmptyState> : null}
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
           <div className="trigger-layout">
@@ -278,13 +262,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
       </section>
 
       <section className="panel source-governance-panel">
-        <header className="section-title ingestion-head">
-          <div>
-            <p>来源治理</p>
-            <h2>反馈调节后的来源状态</h2>
-          </div>
-          <span>{sourceSpecs.length} 个来源</span>
-        </header>
+        <PanelHeader className="ingestion-head" kicker="来源治理" title="反馈调节后的来源状态" meta={`${sourceSpecs.length} 个来源`} />
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
           <div className="source-governance-grid">
@@ -295,7 +273,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                     <p>{source.platform}</p>
                     <strong>{source.label}</strong>
                   </div>
-                  <span className="source-chip">{source.priority}</span>
+                  <StatusPill className="source-chip" status="draft">{source.priority}</StatusPill>
                 </div>
                 <span className="source-governance-note">
                   {formatGovernanceSummary(source) || "当前还没有额外的治理调整。"}
@@ -319,18 +297,17 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
       </section>
 
       <section className="panel ingestion-panel">
-        <header className="section-title ingestion-head">
-          <div>
-            <p>运行历史</p>
-            <h2>最近采集批次</h2>
-          </div>
-          <span>{runsQuery.isFetching ? "刷新中" : "每 30 秒自动刷新"}</span>
-        </header>
+        <PanelHeader
+          className="ingestion-head"
+          kicker="运行历史"
+          title="最近采集批次"
+          meta={runsQuery.isFetching ? "刷新中" : "每 30 秒自动刷新"}
+        />
 
-        {runsQuery.isLoading ? <div className="empty-state">正在加载采集历史...</div> : null}
-        {runsQuery.isError ? <div className="empty-state">采集历史加载失败，请检查后端接口。</div> : null}
+        {runsQuery.isLoading ? <EmptyState>正在加载采集历史...</EmptyState> : null}
+        {runsQuery.isError ? <EmptyState>采集历史加载失败，请检查后端接口。</EmptyState> : null}
         {!runsQuery.isLoading && !runsQuery.isError && runs.length === 0 ? (
-          <div className="empty-state">当前还没有采集批次记录。</div>
+          <EmptyState>当前还没有采集批次记录。</EmptyState>
         ) : null}
 
         {!runsQuery.isLoading && !runsQuery.isError && runs.length > 0 ? (
@@ -340,7 +317,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                 <div className="run-main">
                   <div className="run-head">
                     <h3>采集批次 #{run.id}</h3>
-                    <span className={`status-pill status-${run.status}`}>{formatRunStatus(run.status)}</span>
+                    <StatusPill status={run.status}>{formatRunStatus(run.status)}</StatusPill>
                   </div>
 
                   <div className="source-chip-list">

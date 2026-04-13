@@ -1,326 +1,502 @@
 import React from "react";
 
+import { DetailLink, MetricGrid, PageHeader, PanelHeader, StatusPill } from "../../components/console";
+
 type PreviewDashboardProps = {
   health: string;
   currentPath: string;
 };
 
-type MetricCell = {
+type PreviewMetric = {
   label: string;
   value: string;
   note: string;
 };
 
-type QueueItem = {
+type PreviewAlert = {
+  category: string;
   title: string;
-  group: string;
-  score: string;
-  sources: string;
-  state: string;
-  reason: string;
+  summary: string;
+  suggestion: string;
+  count: string;
+  tone: "approved" | "pending" | "failed";
 };
 
-type ArticleSection = {
-  heading: string;
-  body: string;
-};
-
-type SourceMixItem = {
+type PreviewSectionMetric = {
+  key: string;
   label: string;
-  ratio: number;
+  reviewed: number;
+  pending: number;
+  flagged: number;
+  total: number;
+  momentum: string;
+  note: string;
+  tone: "calm" | "watch";
 };
 
-type LogEntry = {
-  time: string;
-  level: "warn" | "info" | "error";
+type PreviewRecommendation = {
   title: string;
-  detail: string;
+  category: string;
+  summary: string;
+  suggestion: string;
+  count: number;
+  tone: "calm" | "watch";
 };
 
-type PublishWindow = {
-  time: string;
+type PreviewFailureGroup = {
+  category: string;
+  reason: string;
+  count: number;
+  targets: string[];
+  suggestion: string;
+  tone: "calm" | "watch";
+};
+
+type PreviewPlatformMetric = {
   platform: string;
-  status: string;
+  successRate: number;
+  totalJobs: number;
+  publishedJobs: number;
+  failedJobs: number;
+  scheduledJobs: number;
+  note: string;
+  tone: "calm" | "watch";
 };
 
-type SectionTitleProps = {
-  kicker: string;
+type PreviewRecentJob = {
+  platform: string;
+  articleId: number;
+  updatedAt: string;
+  status: "scheduled" | "published" | "failed";
+  note: string;
+};
+
+type PreviewRecentArticle = {
   title: string;
-  meta?: string;
+  periodType: string;
+  storyCount: number;
+  updatedAt: string;
+  status: "ready" | "scheduled" | "published" | "failed" | "draft";
+  variantCount: number;
 };
 
-const METRICS: MetricCell[] = [
-  { label: "今日采集", value: "184", note: "+12 高优信号" },
-  { label: "待审核", value: "27", note: "4 条需人工复核" },
-  { label: "待发布", value: "08", note: "18:30 批次已排程" },
-  { label: "异常日志", value: "03", note: "2 个源需重试" },
-];
-
-const QUEUE_ITEMS: QueueItem[] = [
-  {
-    title: "OpenAI 发布 agent 评测工具链更新",
-    group: "模型 / 工具链",
-    score: "92",
-    sources: "GitHub | Blog | X",
-    state: "高可信",
-    reason: "多源交叉一致，适合进入今日头条段落。",
-  },
-  {
-    title: "Mistral 推出推理栈性能优化版本",
-    group: "推理 / 基建",
-    score: "81",
-    sources: "Blog | X",
-    state: "待确认",
-    reason: "缺少第三来源，建议人工补查 release note。",
-  },
-  {
-    title: "HF 新开源评测集登上社区热榜",
-    group: "数据 / 社区",
-    score: "74",
-    sources: "Hugging Face | Reddit",
-    state: "可入选",
-    reason: "社区热度高，适合放入次级栏目条目。",
-  },
-];
-
-const ARTICLE_SECTIONS: ArticleSection[] = [
-  {
-    heading: "模型与平台",
-    body: "今日高价值更新集中在 agent 评测和推理效率，两条主线都显示出平台方在把能力从“发布模型”推进到“验证可用性”。",
-  },
-  {
-    heading: "开源与社区",
-    body: "社区端更关注评测基准和真实工作流，热度正在从单纯参数规模转向部署稳定性、工具链成熟度和验证成本。",
-  },
-  {
-    heading: "编辑提示",
-    body: "建议头条保留 OpenAI 与 Mistral 两条，避免三条工具新闻连续堆叠；社区项适合放入第二屏短评。",
-  },
-];
-
-const SOURCE_MIX: SourceMixItem[] = [
-  { label: "GitHub / Releases", ratio: 0.42 },
-  { label: "Official Blogs", ratio: 0.27 },
-  { label: "X Allowlist", ratio: 0.19 },
-  { label: "Papers / arXiv", ratio: 0.12 },
-];
-
-const LOG_ENTRIES: LogEntry[] = [
-  { time: "16:02", level: "warn", title: "x-allowlist rate window hit", detail: "切换到回退节流队列，计划 16:08 自动重试。" },
-  { time: "15:48", level: "info", title: "daily digest rebuilt", detail: "根据最新审核结果重新生成长文与短帖版本。" },
-  { time: "15:31", level: "error", title: "rss parser mismatch", detail: "某博客 feed 字段缺失 author，已落入异常池。" },
-  { time: "14:57", level: "info", title: "publish queue scheduled", detail: "公众号与 X 批次写入发布队列，等待人工确认。" },
-];
-
-const PUBLISH_WINDOWS: PublishWindow[] = [
-  { time: "17:40", platform: "公众号", status: "待人工确认" },
-  { time: "18:30", platform: "X", status: "已排程" },
-  { time: "18:35", platform: "Telegram", status: "已排程" },
-];
-
-const SIGNAL_SERIES = [42, 49, 47, 61, 58, 71, 76];
 const VIEW_LABEL_BY_PATH: Record<string, string> = {
-  "/": "总览视角",
-  "/stories": "审核视角",
-  "/articles": "草稿视角",
-  "/publishing": "发布视角",
+  "/": "总览样板",
+  "/preview": "总览样板",
+  "/stories": "审核样板",
+  "/articles": "草稿样板",
+  "/publishing": "发布样板",
 };
 
-function SignalChart(): React.JSX.Element {
-  const width = 320;
-  const height = 150;
-  const padding = 18;
-  const maxValue = Math.max(...SIGNAL_SERIES);
-  const minValue = Math.min(...SIGNAL_SERIES);
-  const stepX = (width - padding * 2) / (SIGNAL_SERIES.length - 1);
+const METRICS: PreviewMetric[] = [
+  { label: "今日采集", value: "184", note: "12 条高优先级信号" },
+  { label: "已审核故事", value: "49", note: "仍有 11 条待人工确认" },
+  { label: "发布成功率", value: "92%", note: "平台重试窗口整体稳定" },
+  { label: "互动点击", value: "1,286", note: "内容回写继续偏向模型与工具链栏目" },
+];
 
-  const points = SIGNAL_SERIES.map((value, index) => {
-    const x = padding + index * stepX;
-    const y = height - padding - ((value - minValue) / Math.max(maxValue - minValue, 1)) * (height - padding * 2);
-    return `${x},${y}`;
-  }).join(" ");
+const ALERTS: PreviewAlert[] = [
+  {
+    category: "来源",
+    title: "X allowlist 触发限流窗口",
+    summary: "已切回节流队列，16:08 重新尝试。",
+    suggestion: "优先保留 GitHub / 官方博客来源，避免短时间内补抓同一批帐号。",
+    count: "2",
+    tone: "pending",
+  },
+  {
+    category: "发布",
+    title: "微信回写仍缺 1 条 provider 状态",
+    summary: "当前批次已完成发布，但 provider 结果还未完全回填。",
+    suggestion: "继续轮询 1 次，如果仍缺失则转人工核对外部 ID。",
+    count: "1",
+    tone: "approved",
+  },
+];
 
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="signal-chart" aria-label="近七日信号强度变化">
-      <defs>
-        <linearGradient id="signal-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="rgba(191, 156, 106, 0.34)" />
-          <stop offset="100%" stopColor="rgba(191, 156, 106, 0)" />
-        </linearGradient>
-      </defs>
-      {[0, 1, 2, 3].map((line) => (
-        <line
-          key={line}
-          x1={padding}
-          y1={padding + line * 34}
-          x2={width - padding}
-          y2={padding + line * 34}
-          className="signal-grid"
-        />
-      ))}
-      <polyline points={`${padding},${height - padding} ${points} ${width - padding},${height - padding}`} className="signal-area" />
-      <polyline points={points} className="signal-line" />
-      {SIGNAL_SERIES.map((value, index) => {
-        const x = padding + index * stepX;
-        const y = height - padding - ((value - minValue) / Math.max(maxValue - minValue, 1)) * (height - padding * 2);
-        return <circle key={`${value}-${index}`} cx={x} cy={y} r="3.8" className="signal-dot" />;
-      })}
-    </svg>
-  );
+const SECTION_METRICS: PreviewSectionMetric[] = [
+  {
+    key: "models",
+    label: "模型与平台",
+    reviewed: 12,
+    pending: 4,
+    flagged: 1,
+    total: 17,
+    momentum: "高热",
+    note: "CTR 11%，头条稿件已形成稳定转化。",
+    tone: "watch",
+  },
+  {
+    key: "open_source",
+    label: "开源生态",
+    reviewed: 9,
+    pending: 2,
+    flagged: 0,
+    total: 11,
+    momentum: "上升",
+    note: "适合继续作为次级栏目承接社区热度。",
+    tone: "calm",
+  },
+];
+
+const RECOMMENDATIONS: PreviewRecommendation[] = [
+  {
+    title: "优先清理模型与平台栏目积压",
+    category: "栏目",
+    summary: "当前高分 story 集中在同一栏目，已经开始挤占发布窗口。",
+    suggestion: "优先完成 4 条待审核 story，再决定是否扩展到周报。",
+    count: 4,
+    tone: "watch",
+  },
+  {
+    title: "把 Telegram 变体改为速览摘要型",
+    category: "平台",
+    summary: "Telegram 当前互动低于微信和 X，更适合承接列表化摘要。",
+    suggestion: "下一个批次使用更紧凑的段落模板，并降低 CTA 密度。",
+    count: 2,
+    tone: "calm",
+  },
+];
+
+const FAILURE_GROUPS: PreviewFailureGroup[] = [
+  {
+    category: "采集",
+    reason: "RSS feed 字段缺失",
+    count: 2,
+    targets: ["official-blog-rss", "labs-feed"],
+    suggestion: "转入 HTML fallback 解析，并补记 author 缺省策略。",
+    tone: "watch",
+  },
+  {
+    category: "发布",
+    reason: "provider callback 延迟",
+    count: 1,
+    targets: ["wechat"],
+    suggestion: "继续轮询，若超过窗口则转人工核对。",
+    tone: "calm",
+  },
+];
+
+const PLATFORM_METRICS: PreviewPlatformMetric[] = [
+  {
+    platform: "微信",
+    successRate: 0.94,
+    totalJobs: 16,
+    publishedJobs: 15,
+    failedJobs: 1,
+    scheduledJobs: 0,
+    note: "长文导读依旧是主力入口。",
+    tone: "calm",
+  },
+  {
+    platform: "X",
+    successRate: 0.88,
+    totalJobs: 17,
+    publishedJobs: 15,
+    failedJobs: 1,
+    scheduledJobs: 1,
+    note: "讨论型钩子表现稳定，但来源核对压力更高。",
+    tone: "watch",
+  },
+];
+
+const RECENT_JOBS: PreviewRecentJob[] = [
+  {
+    platform: "微信",
+    articleId: 204,
+    updatedAt: "04/13 16:22",
+    status: "published",
+    note: "已写回 842 曝光 / 97 点击",
+  },
+  {
+    platform: "Telegram",
+    articleId: 204,
+    updatedAt: "04/13 16:18",
+    status: "scheduled",
+    note: "18:35 窗口待执行",
+  },
+];
+
+const RECENT_ARTICLES: PreviewRecentArticle[] = [
+  {
+    title: "AI 资讯日报 2026-04-13",
+    periodType: "日报",
+    storyCount: 7,
+    updatedAt: "04/13 16:11",
+    status: "ready",
+    variantCount: 3,
+  },
+  {
+    title: "AI 周报 2026-W15",
+    periodType: "周报",
+    storyCount: 15,
+    updatedAt: "04/13 15:48",
+    status: "scheduled",
+    variantCount: 3,
+  },
+];
+
+function formatStatus(status: PreviewRecentJob["status"] | PreviewRecentArticle["status"]): string {
+  if (status === "scheduled") return "待发布";
+  if (status === "published") return "已发布";
+  if (status === "failed") return "失败";
+  if (status === "ready") return "就绪";
+  return "草稿";
 }
 
-function SectionTitle({ kicker, title, meta }: SectionTitleProps): React.JSX.Element {
-  return (
-    <header className="section-title">
-      <div>
-        <p>{kicker}</p>
-        <h2>{title}</h2>
-      </div>
-      {meta ? <span>{meta}</span> : null}
-    </header>
-  );
-}
-
-/**
- * Preview shell for the warm-metal admin experience before full feature pages land.
- */
 export function PreviewDashboard({ health, currentPath }: PreviewDashboardProps): React.JSX.Element {
   const currentLabel = VIEW_LABEL_BY_PATH[currentPath] ?? VIEW_LABEL_BY_PATH["/"];
 
   return (
-    <div className="preview-page">
-      <section className="intro-band">
-        <div className="intro-copy">
-          <p className="eyebrow">Warm Metal Review Surface</p>
-          <h1>AI 内容审核与分发后台预览</h1>
-          <p className="lede">
-            用暖白金属极简基底承载审核、统计、日志和草稿预览。整体强调秩序、可信度与轻未来感，而不是炫技型 AI 控制台。
-          </p>
-        </div>
+    <div className="preview-page ops-dashboard-page">
+      <PageHeader
+        className="intro-band"
+        eyebrow="总览样板"
+        title="暖白金属控制台总览"
+        lead="这个样板页不再维护独立的信息结构，而是直接复用真实运营总览的版面语言，用静态样本验证层级、节奏和视觉基线。"
+        health={health}
+        metaLabel="当前预览"
+        metaValue={currentLabel}
+      />
 
-        <div className="intro-meta">
-          <div className="signal-pill">
-            <span className="signal-dot-live" />
-            <strong>{health}</strong>
-          </div>
-          <div className="meta-chip">
-            <span>当前预览</span>
-            <strong>{currentLabel}</strong>
-          </div>
-        </div>
-      </section>
+      <MetricGrid ariaLabel="核心概览指标" items={METRICS} variant="strip" />
 
-      <section className="metric-strip" aria-label="核心概览指标">
-        {METRICS.map((metric) => (
-          <article key={metric.label} className="metric-cell">
-            <p>{metric.label}</p>
-            <strong>{metric.value}</strong>
-            <span>{metric.note}</span>
+      <section className="ops-alert-strip" aria-label="预览告警">
+        {ALERTS.map((alert) => (
+          <article key={alert.title} className="ops-alert-card" data-tone={alert.tone === "approved" ? "calm" : "watch"}>
+            <div className="ops-alert-head">
+              <div>
+                <p>{alert.category}</p>
+                <strong>{alert.title}</strong>
+              </div>
+              <StatusPill status={alert.tone}>{alert.count}</StatusPill>
+            </div>
+            <span>{alert.summary}</span>
+            <p className="failure-suggestion">{alert.suggestion}</p>
           </article>
         ))}
       </section>
 
-      <section className="preview-grid">
-        <article className="panel queue-panel">
-          <SectionTitle kicker="Content Audit" title="审核队列" meta="27 条待筛选" />
-          <div className="queue-list">
-            {QUEUE_ITEMS.map((item) => (
-              <article key={item.title} className="queue-row">
-                <div className="queue-score">{item.score}</div>
-                <div className="queue-main">
-                  <div className="queue-heading">
-                    <h3>{item.title}</h3>
-                    <span>{item.group}</span>
-                  </div>
-                  <p>{item.reason}</p>
-                </div>
-                <div className="queue-meta">
-                  <strong>{item.state}</strong>
-                  <span>{item.sources}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
+      <section className="ops-grid">
+        <article className="panel ops-health-panel">
+          <PanelHeader kicker="流程健康度" title="核心工作流状态" meta="静态样板快照" />
 
-        <article className="panel mix-panel">
-          <SectionTitle kicker="Source Weight" title="来源结构" meta="P0 优先" />
-          <div className="mix-list">
-            {SOURCE_MIX.map((item) => (
-              <div key={item.label} className="mix-row">
-                <div className="mix-copy">
-                  <strong>{item.label}</strong>
-                  <span>{Math.round(item.ratio * 100)}%</span>
-                </div>
-                <div className="mix-track">
-                  <div className="mix-fill" style={{ width: `${item.ratio * 100}%` }} />
-                </div>
+          <div className="runway ops-runway">
+            <div className="runway-step">
+              <div className="runway-node">
+                <span>1</span>
               </div>
-            ))}
+              <div className="runway-copy">
+                <strong>采集</strong>
+                <p>18</p>
+                <span>2 个来源进入降速保护</span>
+              </div>
+            </div>
+            <div className="runway-step">
+              <div className="runway-node">
+                <span>2</span>
+              </div>
+              <div className="runway-copy">
+                <strong>审核</strong>
+                <p>49</p>
+                <span>11 条 story 仍待编辑确认</span>
+              </div>
+            </div>
+            <div className="runway-step">
+              <div className="runway-node">
+                <span>3</span>
+              </div>
+              <div className="runway-copy">
+                <strong>发布</strong>
+                <p>30</p>
+                <span>2 个平台窗口仍待执行</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="risk-overview-grid ops-risk-grid">
+            <div className="risk-stat" data-tone="watch">
+              <p>失败草稿</p>
+              <strong>2</strong>
+              <span>需要编辑台人工检查平台回写和变体状态。</span>
+            </div>
+            <div className="risk-stat" data-tone="watch">
+              <p>到期未完成</p>
+              <strong>1</strong>
+              <span>一个 Telegram 批次还没有进入 provider 终态。</span>
+            </div>
+            <div className="risk-stat" data-tone="calm">
+              <p>行动队列</p>
+              <strong>2</strong>
+              <span>当前建议动作已经足够支撑下一轮编辑决策。</span>
+            </div>
           </div>
         </article>
 
-        <article className="panel draft-panel">
-          <SectionTitle kicker="Daily Digest" title="长文草稿预览" meta="已生成 v3" />
-          <div className="draft-article">
-            <div className="draft-headline">
-              <p>今日导语</p>
-              <h3>AI 资讯日报 2026-03-25</h3>
-              <span>今日重点从“模型发布”向“可用性验证”迁移，审核建议聚焦平台级动作而非单点热帖。</span>
-            </div>
-
-            <div className="draft-body">
-              {ARTICLE_SECTIONS.map((section) => (
-                <section key={section.heading}>
-                  <h4>{section.heading}</h4>
-                  <p>{section.body}</p>
-                </section>
+        <div className="ops-side-stack">
+          <article className="panel ops-section-panel">
+            <PanelHeader kicker="栏目审核" title="按栏目查看编辑负载" meta={`${SECTION_METRICS.length} 个栏目`} />
+            <div className="source-governance-grid section-metric-list">
+              {SECTION_METRICS.map((metric) => (
+                <article key={metric.key} className="source-governance-card" data-tone={metric.tone}>
+                  <div className="source-governance-head">
+                    <div>
+                      <p>{metric.key}</p>
+                      <strong>{metric.label}</strong>
+                    </div>
+                    <StatusPill status="pending">{metric.total}</StatusPill>
+                  </div>
+                  <div className="platform-metric-grid compact-gap">
+                    <div>
+                      <span>已审核</span>
+                      <strong>{metric.reviewed}</strong>
+                    </div>
+                    <div>
+                      <span>待审核</span>
+                      <strong>{metric.pending}</strong>
+                    </div>
+                    <div>
+                      <span>需复核</span>
+                      <strong>{metric.flagged}</strong>
+                    </div>
+                    <div>
+                      <span>总数</span>
+                      <strong>{metric.total}</strong>
+                    </div>
+                  </div>
+                  <p className="platform-metric-note">{`${metric.momentum} · ${metric.note}`}</p>
+                  <div className="panel-link-row">
+                    <DetailLink>打开栏目详情</DetailLink>
+                  </div>
+                </article>
               ))}
             </div>
-          </div>
-        </article>
+          </article>
 
-        <article className="panel chart-panel">
-          <SectionTitle kicker="Signal Tempo" title="近七日信号强度" meta="自动聚类结果" />
-          <SignalChart />
-          <div className="chart-footer">
-            <span>周初以官方博客为主</span>
-            <span>周中开始转向多源交叉热点</span>
-          </div>
-        </article>
-
-        <article className="panel log-panel">
-          <SectionTitle kicker="Ops Ledger" title="系统日志" meta="近 4 条事件" />
-          <div className="log-list">
-            {LOG_ENTRIES.map((entry) => (
-              <article key={`${entry.time}-${entry.title}`} className={`log-row log-${entry.level}`}>
-                <div className="log-time">{entry.time}</div>
-                <div className="log-main">
-                  <div className="log-head">
-                    <strong>{entry.title}</strong>
-                    <span>{entry.level}</span>
+          <article className="panel ops-recommendation-panel">
+            <PanelHeader kicker="反馈闭环" title="建议的下一步动作" meta={`${RECOMMENDATIONS.length} 条建议`} />
+            <div className="failure-group-list recommendation-list">
+              {RECOMMENDATIONS.map((recommendation) => (
+                <article key={recommendation.title} className="failure-group-card recommendation-card" data-tone={recommendation.tone}>
+                  <div className="failure-group-head">
+                    <div>
+                      <p>{recommendation.category}</p>
+                      <strong>{recommendation.title}</strong>
+                    </div>
+                    <StatusPill status="pending">{recommendation.count}</StatusPill>
                   </div>
-                  <p>{entry.detail}</p>
+                  <p className="source-governance-note">{recommendation.summary}</p>
+                  <p className="failure-suggestion">{recommendation.suggestion}</p>
+                  <div className="panel-link-row">
+                    <DetailLink>打开建议详情</DetailLink>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className="ops-grid">
+        <article className="panel ops-diagnostics-panel">
+          <PanelHeader kicker="失败诊断" title="最近的失败分组" meta={`${FAILURE_GROUPS.length} 个分组`} />
+          <div className="failure-group-list">
+            {FAILURE_GROUPS.map((group) => (
+              <article key={group.reason} className="failure-group-card" data-tone={group.tone}>
+                <div className="failure-group-head">
+                  <div>
+                    <p>{group.category}</p>
+                    <strong>{group.reason}</strong>
+                  </div>
+                  <StatusPill status="failed">{group.count}</StatusPill>
+                </div>
+                <div className="failure-chip-list">
+                  {group.targets.map((target) => (
+                    <span key={target} className="failure-target-chip">
+                      {target}
+                    </span>
+                  ))}
+                </div>
+                <p className="failure-suggestion">{group.suggestion}</p>
+                <div className="panel-link-row">
+                  <DetailLink>打开失败详情</DetailLink>
                 </div>
               </article>
             ))}
           </div>
         </article>
 
-        <article className="panel publish-panel">
-          <SectionTitle kicker="Publish Runway" title="发布窗口" meta="今日排程" />
-          <div className="runway">
-            {PUBLISH_WINDOWS.map((window, index) => (
-              <div key={`${window.time}-${window.platform}`} className="runway-step">
-                <div className="runway-node">
-                  <span>{index + 1}</span>
+        <article className="panel ops-platform-panel">
+          <PanelHeader kicker="平台表现" title="按渠道查看发布表现" meta={`${PLATFORM_METRICS.length} 个平台`} />
+          <div className="platform-metric-list">
+            {PLATFORM_METRICS.map((metric) => (
+              <article key={metric.platform} className="platform-metric-card" data-tone={metric.tone}>
+                <div className="platform-metric-head">
+                  <strong>{metric.platform}</strong>
+                  <span>{Math.round(metric.successRate * 100)}%</span>
                 </div>
-                <div className="runway-copy">
-                  <strong>{window.platform}</strong>
-                  <p>{window.time}</p>
-                  <span>{window.status}</span>
+                <div className="platform-metric-grid">
+                  <div>
+                    <span>任务总数</span>
+                    <strong>{metric.totalJobs}</strong>
+                  </div>
+                  <div>
+                    <span>已发布</span>
+                    <strong>{metric.publishedJobs}</strong>
+                  </div>
+                  <div>
+                    <span>失败</span>
+                    <strong>{metric.failedJobs}</strong>
+                  </div>
+                  <div>
+                    <span>待执行</span>
+                    <strong>{metric.scheduledJobs}</strong>
+                  </div>
                 </div>
-              </div>
+                <p className="platform-metric-note">{metric.note}</p>
+                <div className="panel-link-row">
+                  <DetailLink>{metric.failedJobs > 0 ? "打开失败任务" : "打开平台详情"}</DetailLink>
+                </div>
+              </article>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="ops-grid">
+        <article className="panel ops-jobs-panel">
+          <PanelHeader kicker="最近任务" title="最近的发布活动" meta={`${RECENT_JOBS.length} 条任务`} />
+          <div className="ops-article-list">
+            {RECENT_JOBS.map((job) => (
+              <article key={`${job.platform}-${job.articleId}`} className="ops-article-row">
+                <div>
+                  <strong>{job.platform}</strong>
+                  <p>{`稿件 #${job.articleId} · ${job.updatedAt}`}</p>
+                </div>
+                <div className="ops-article-meta">
+                  <StatusPill status={job.status}>{formatStatus(job.status)}</StatusPill>
+                  <span>{job.note}</span>
+                  <DetailLink soft>详情</DetailLink>
+                </div>
+              </article>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel ops-articles-panel">
+          <PanelHeader kicker="最近草稿" title="最近的稿件更新" meta={`${RECENT_ARTICLES.length} 篇草稿`} />
+          <div className="ops-article-list">
+            {RECENT_ARTICLES.map((article) => (
+              <article key={article.title} className="ops-article-row">
+                <div>
+                  <strong>{article.title}</strong>
+                  <p>{`${article.periodType} · ${article.storyCount} 条 story · 更新于 ${article.updatedAt}`}</p>
+                </div>
+                <div className="ops-article-meta">
+                  <StatusPill status={article.status}>{formatStatus(article.status)}</StatusPill>
+                  <span>{`${article.variantCount} 个变体`}</span>
+                </div>
+              </article>
             ))}
           </div>
         </article>

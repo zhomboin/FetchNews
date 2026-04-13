@@ -1,5 +1,6 @@
 ﻿import React from "react";
 
+import { EmptyState, PanelHeader, StatusPill } from "../../components/console";
 import { formatSectionLabel } from "../../lib/api";
 import type { ArticleBlockRecord, ArticleWorkbenchRecord } from "../../lib/editorial-api";
 import type { BlockDraftRecord, BlockDraftState } from "./article-editor-types";
@@ -44,26 +45,15 @@ export function ArticleComposer({
   if (article === null) {
     return (
       <section className="panel editorial-workbench-composer">
-        <header className="section-title editorial-section-title">
-          <div>
-            <p>正文编排</p>
-            <h2>段落编排</h2>
-          </div>
-        </header>
-        <div className="empty-state">先在左侧选择一篇稿件，再对正文块进行锁定、改写和混合重建。</div>
+        <PanelHeader className="editorial-section-title" kicker="正文编排" title="段落编排" />
+        <EmptyState>先在左侧选择一篇稿件，再对正文块进行锁定、改写和混合重建。</EmptyState>
       </section>
     );
   }
 
   return (
     <section className="panel editorial-workbench-composer">
-      <header className="section-title editorial-section-title">
-        <div>
-          <p>正文编排</p>
-          <h2>段落编排</h2>
-        </div>
-        <span>{bodyBlocks.length} 个正文块</span>
-      </header>
+      <PanelHeader className="editorial-section-title" kicker="正文编排" title="段落编排" meta={`${bodyBlocks.length} 个正文块`} />
 
       <section className="article-hero-card editorial-composer-hero">
         <div className="article-hero-copy">
@@ -110,9 +100,9 @@ export function ArticleComposer({
                   {block.sectionKey ? (
                     <span className="section-badge section-badge-soft">{formatSectionLabel(block.sectionKey)}</span>
                   ) : null}
-                  <span className={`status-pill ${draft.isLocked ? "status-approved" : "status-draft"}`}>
+                  <StatusPill status={draft.isLocked ? "approved" : "draft"}>
                     {draft.isLocked ? "已锁定" : "可重建"}
-                  </span>
+                  </StatusPill>
                 </div>
               </header>
 

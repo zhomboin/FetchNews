@@ -10,6 +10,7 @@ import { ArticleHistoryDetailPage } from "./features/articles/article-history-de
 import { IngestionRunsPage } from "./features/ingestion/ingestion-runs-page";
 import { OpsDashboardPage } from "./features/ops/ops-dashboard-page";
 import { OpsDetailPage } from "./features/ops/ops-detail-page";
+import { PreviewDashboard } from "./features/preview/preview-dashboard";
 import { StoriesPage } from "./features/stories/stories-page";
 import { configureAccessTokenResolver, fetchAuthConfig, fetchCurrentUser, fetchHealth, login } from "./lib/api";
 import { getAccessToken, useAuthStore } from "./lib/auth-store";
@@ -76,6 +77,7 @@ function Shell({ health, onLogout }: ShellProps): React.JSX.Element {
           <Route path="/articles" element={<ArticlesPage health={health} />} />
           <Route path="/articles/history" element={<ArticleHistoryDetailPage />} />
           <Route path="/publishing" element={<OpsDashboardPage health={health} mode="publishing" />} />
+          <Route path="/preview" element={<PreviewDashboard health={health} currentPath="/preview" />} />
           <Route path="/ops/details" element={<OpsDetailPage health={health} />} />
           <Route path="*" element={<OpsDashboardPage health={health} mode="overview" />} />
         </Routes>

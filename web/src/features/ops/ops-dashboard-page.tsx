@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { DetailLink, EmptyState, StatusPill } from "../../components/console";
+import { DetailLink, EmptyState, MetricGrid, PageHeader, PanelHeader, StatusPill } from "../../components/console";
 import {
   AlertRecord,
   ArticleDraftRecord,
@@ -326,34 +326,17 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
 
   return (
     <div className="preview-page ops-dashboard-page">
-      <section className="intro-band">
-        <div className="intro-copy">
-          <p className="eyebrow">运营控制台</p>
-          <h1>{title}</h1>
-          <p className="lede">{lead}</p>
-        </div>
+      <PageHeader
+        className="intro-band"
+        eyebrow="运营控制台"
+        title={title}
+        lead={lead}
+        health={health}
+        metaLabel="刷新间隔"
+        metaValue="30 秒"
+      />
 
-        <div className="intro-meta">
-          <div className="signal-pill">
-            <span className="signal-dot-live" />
-            <strong>{health}</strong>
-          </div>
-          <div className="meta-chip">
-            <span>刷新间隔</span>
-            <strong>30 秒</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="metric-strip" aria-label="运营快照">
-        {metrics.map((metric) => (
-          <article key={metric.label} className="metric-cell">
-            <p>{metric.label}</p>
-            <strong>{metric.value}</strong>
-            <span>{metric.note}</span>
-          </article>
-        ))}
-      </section>
+      <MetricGrid ariaLabel="运营快照" items={metrics} variant="strip" />
 
 
       <section className="ops-alert-strip" aria-label="运营告警">
@@ -386,13 +369,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
 
       <section className="ops-grid">
         <article className="panel ops-health-panel">
-          <header className="section-title">
-            <div>
-              <p>流程健康度</p>
-              <h2>核心工作流状态</h2>
-            </div>
-            <span>{summaryQuery.isFetching ? "刷新中" : "实时快照"}</span>
-          </header>
+          <PanelHeader kicker="流程健康度" title="核心工作流状态" meta={summaryQuery.isFetching ? "刷新中" : "实时快照"} />
 
           <div className="runway ops-runway">
             <div className="runway-step">
@@ -451,13 +428,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
 
         <div className="ops-side-stack">
           <article className="panel ops-section-panel">
-            <header className="section-title">
-              <div>
-                <p>栏目审核</p>
-                <h2>按栏目查看编辑负载</h2>
-              </div>
-              <span>{sectionMetrics.length} 个栏目</span>
-            </header>
+            <PanelHeader kicker="栏目审核" title="按栏目查看编辑负载" meta={`${sectionMetrics.length} 个栏目`} />
 
             {sectionMetrics.length === 0 ? (
               <EmptyState>当前还没有已审核或待审核的 story。先执行采集并审核几条内容。</EmptyState>
@@ -507,13 +478,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           </article>
 
           <article className="panel ops-momentum-panel">
-            <header className="section-title">
-              <div>
-                <p>栏目势能</p>
-                <h2>表现较强的栏目</h2>
-              </div>
-              <span>{momentumSections.length} 个已跟踪栏目</span>
-            </header>
+            <PanelHeader kicker="栏目势能" title="表现较强的栏目" meta={`${momentumSections.length} 个已跟踪栏目`} />
 
             {momentumSections.length === 0 ? (
               <EmptyState>当前还没有栏目互动信号。先记录发布反馈，才能看出哪些栏目真正有效。</EmptyState>
@@ -562,13 +527,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           </article>
 
           <article className="panel ops-recommendation-panel">
-            <header className="section-title">
-              <div>
-                <p>反馈闭环</p>
-                <h2>建议的下一步动作</h2>
-              </div>
-              <span>{feedbackRecommendations.length} 条建议</span>
-            </header>
+            <PanelHeader kicker="反馈闭环" title="建议的下一步动作" meta={`${feedbackRecommendations.length} 条建议`} />
 
             {feedbackRecommendations.length === 0 ? (
               <EmptyState>当前没有额外建议动作，审核和发布信号整体稳定。</EmptyState>
@@ -609,13 +568,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
 
       <section className="ops-grid">
         <article className="panel ops-diagnostics-panel">
-          <header className="section-title">
-            <div>
-              <p>失败诊断</p>
-              <h2>最近的失败分组</h2>
-            </div>
-            <span>{failureGroups.length} 个分组</span>
-          </header>
+          <PanelHeader kicker="失败诊断" title="最近的失败分组" meta={`${failureGroups.length} 个分组`} />
 
           {failureGroups.length === 0 ? (
             <EmptyState>最近没有失败分组，当前流程快照较为干净。</EmptyState>
@@ -655,13 +608,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         </article>
 
         <article className="panel ops-platform-panel">
-          <header className="section-title">
-            <div>
-              <p>平台表现</p>
-              <h2>按渠道查看发布表现</h2>
-            </div>
-            <span>{platformMetrics.length} 个平台</span>
-          </header>
+          <PanelHeader kicker="平台表现" title="按渠道查看发布表现" meta={`${platformMetrics.length} 个平台`} />
 
           {platformMetrics.length === 0 ? (
             <EmptyState>当前还没有平台指标。先创建并执行几条发布任务。</EmptyState>
@@ -712,13 +659,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
 
       <section className="ops-grid">
         <article className="panel ops-jobs-panel">
-          <header className="section-title">
-            <div>
-              <p>最近任务</p>
-              <h2>最近的发布活动</h2>
-            </div>
-            <span>{recentJobs.length} 条任务</span>
-          </header>
+          <PanelHeader kicker="最近任务" title="最近的发布活动" meta={`${recentJobs.length} 条任务`} />
 
           {recentJobs.length === 0 ? (
             <EmptyState>当前还没有发布任务。先创建草稿并排程分发。</EmptyState>
@@ -752,13 +693,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         </article>
 
         <article className="panel ops-articles-panel">
-          <header className="section-title">
-            <div>
-              <p>最近草稿</p>
-              <h2>最近的稿件更新</h2>
-            </div>
-            <span>{recentArticles.length} 篇草稿</span>
-          </header>
+          <PanelHeader kicker="最近草稿" title="最近的稿件更新" meta={`${recentArticles.length} 篇草稿`} />
 
           {recentArticles.length === 0 ? (
             <EmptyState>当前还没有文章草稿。先生成一篇摘要稿件。</EmptyState>

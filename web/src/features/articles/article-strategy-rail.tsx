@@ -1,5 +1,6 @@
 import React from "react";
 
+import { DetailLink, PanelHeader } from "../../components/console";
 import { formatSectionLabel } from "../../lib/api";
 import type { ArticlePeriodType, StoryRecord } from "../../lib/api";
 import type { ArticleSectionPlanRecord, ArticleWorkbenchRecord, DigestTemplateRecord } from "../../lib/editorial-api";
@@ -114,13 +115,7 @@ export function ArticleStrategyRail({
 
   return (
     <section className="panel editorial-workbench-rail">
-      <header className="section-title editorial-section-title">
-        <div>
-          <p>策略侧栏</p>
-          <h2>编辑策略</h2>
-        </div>
-        <span>{health}</span>
-      </header>
+      <PanelHeader className="editorial-section-title" kicker="策略侧栏" title="编辑策略" meta={health} />
 
       <div className="editorial-period-stack">
         {PERIOD_OPTIONS.map((option) => (
@@ -253,9 +248,9 @@ export function ArticleStrategyRail({
         <div className="editorial-template-panel">
           <div className="subsection-head">
             <strong>按栏目局部重建</strong>
-            <button type="button" className="detail-link detail-link-soft" onClick={onClearRebuildSections}>
+            <DetailLink soft onClick={onClearRebuildSections}>
               清空选择
-            </button>
+            </DetailLink>
           </div>
           <p className="article-note-copy">只重建未锁定且命中的栏目块，其他正文块、平台块和人工修改会继续保留。</p>
           <div className="filter-chip-row wrap-gap">

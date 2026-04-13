@@ -1,7 +1,8 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
+import { DetailLink, EmptyState, PanelHeader, StatusPill } from "../../components/console";
 import { formatSectionLabel } from "../../lib/api";
 import {
   fetchArticleBlocks,
@@ -85,16 +86,13 @@ export function ArticleHistoryDetailPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="panel editorial-history-detail-shell">
-        <header className="section-title editorial-section-title">
-          <div>
-            <p>版本下钻</p>
-            <h2>{selectedArticle?.title ?? "请选择稿件"}</h2>
-          </div>
-          <Link className="detail-link" to="/articles">
-            返回编辑台
-          </Link>
-        </header>
+        <section className="panel editorial-history-detail-shell">
+          <PanelHeader
+            className="editorial-section-title"
+            kicker="版本下钻"
+            title={selectedArticle?.title ?? "请选择稿件"}
+            actions={<DetailLink to="/articles">返回编辑台</DetailLink>}
+          />
 
         <div className="editorial-history-toolbar">
           <label className="field-shell">
@@ -165,19 +163,19 @@ export function ArticleHistoryDetailPage(): React.JSX.Element {
 
         <section className="editorial-history-grid">
           <div className="editorial-diff-list editorial-diff-list-full">
-            {diffSummary.diffRecords.length === 0 ? (
-              <div className="empty-state">所选版本与当前激活版本一致，没有额外差异。</div>
-            ) : (
-              diffSummary.diffRecords.map((record) => (
+              {diffSummary.diffRecords.length === 0 ? (
+                <EmptyState>所选版本与当前激活版本一致，没有额外差异。</EmptyState>
+              ) : (
+                diffSummary.diffRecords.map((record) => (
                 <article key={`${record.blockKey}-${record.changeKind}`} className="editorial-diff-card editorial-diff-card-dense">
                   <div className="detail-card-header">
                     <div>
                       <p className="detail-kicker">{record.blockTypeLabel}</p>
                       <h3>{record.afterTitle || record.beforeTitle || record.blockKey}</h3>
                     </div>
-                    <span className={`status-pill status-${record.changeKind === "removed" ? "failed" : record.changeKind === "added" ? "ready" : "draft"}`}>
+                    <StatusPill status={record.changeKind === "removed" ? "failed" : record.changeKind === "added" ? "ready" : "draft"}>
                       {record.changeKind === "changed" ? "已变更" : record.changeKind === "added" ? "新增" : "已移除"}
-                    </span>
+                    </StatusPill>
                   </div>
                   <p className="detail-copy">
                     {record.sectionLabel ?? record.platformLabel ?? "系统块"}
@@ -211,9 +209,9 @@ export function ArticleHistoryDetailPage(): React.JSX.Element {
                   <p>{selectedRevision.changeNote ?? "没有额外说明。"}</p>
                   <p>{`创建时间：${formatDateTime(selectedRevision.createdAt)}`}</p>
                 </div>
-              ) : (
-                <div className="empty-state compact-empty-state">当前没有可查看的版本。</div>
-              )}
+                ) : (
+                  <EmptyState className="compact-empty-state">当前没有可查看的版本。</EmptyState>
+                )}
             </section>
 
             <section className="panel detail-side-panel">

@@ -1,6 +1,6 @@
 import React from "react";
-import { Link } from "react-router-dom";
 
+import { DetailLink, EmptyState, PanelHeader, StatusPill } from "../../components/console";
 import type { PostVariantRecord, PublishJobRecord } from "../../lib/api";
 import type { ArticleBlockRecord, ArticleRevisionRecord, ArticleWorkbenchRecord, EditorialActionRecord } from "../../lib/editorial-api";
 import type {
@@ -166,13 +166,8 @@ export function ArticleHistoryPanel({
   if (article === null) {
     return (
       <section className="panel editorial-workbench-history">
-        <header className="section-title editorial-section-title">
-          <div>
-            <p>历史与渠道</p>
-            <h2>版本历史与渠道</h2>
-          </div>
-        </header>
-        <div className="empty-state">选择一篇稿件后，这里会显示版本差异、平台文案、编辑动作和发布前审核信息。</div>
+        <PanelHeader className="editorial-section-title" kicker="历史与渠道" title="版本历史与渠道" />
+        <EmptyState>选择一篇稿件后，这里会显示版本差异、平台文案、编辑动作和发布前审核信息。</EmptyState>
       </section>
     );
   }
@@ -182,13 +177,7 @@ export function ArticleHistoryPanel({
 
   return (
     <section className="panel editorial-workbench-history">
-      <header className="section-title editorial-section-title">
-        <div>
-          <p>历史与渠道</p>
-          <h2>版本历史与渠道</h2>
-        </div>
-        <span>{revisions.length} 个版本</span>
-      </header>
+      <PanelHeader className="editorial-section-title" kicker="历史与渠道" title="版本历史与渠道" meta={`${revisions.length} 个版本`} />
 
       <section className="editorial-history-summary">
         <div className="risk-stat" data-tone={revisionDiffSummary.changedBlocks > 0 ? "watch" : "calm"}>
@@ -218,9 +207,9 @@ export function ArticleHistoryPanel({
             </span>
           ))
         )}
-        <Link className="detail-link" to={detailHref}>
+        <DetailLink to={detailHref}>
           打开历史明细页
-        </Link>
+        </DetailLink>
       </div>
 
       <div className="editorial-revision-list">
@@ -231,7 +220,7 @@ export function ArticleHistoryPanel({
                 <p className="detail-kicker">版本 {revision.versionNumber}</p>
                 <h3>{resolveRevisionChangeLabel(revision.changeType)}</h3>
               </div>
-              <span className="status-pill status-ready">{formatDateTime(revision.createdAt)}</span>
+              <StatusPill status="ready">{formatDateTime(revision.createdAt)}</StatusPill>
             </div>
             <p className="detail-copy">{revision.changeNote ?? "系统已记录这一版的模板、块快照和平台变体。"}</p>
             <div className="publish-job-actions">
@@ -257,7 +246,7 @@ export function ArticleHistoryPanel({
           <span>{revisionDiffSummary.diffRecords.length} 条</span>
         </header>
         {diffPreview.length === 0 ? (
-          <div className="empty-state compact-empty-state">当前选中版本与激活版本一致，没有需要展示的块级差异。</div>
+          <EmptyState className="compact-empty-state">当前选中版本与激活版本一致，没有需要展示的块级差异。</EmptyState>
         ) : (
           <div className="editorial-diff-list">
             {diffPreview.map((record) => (
@@ -267,9 +256,9 @@ export function ArticleHistoryPanel({
                     <p className="detail-kicker">{record.blockTypeLabel}</p>
                     <h3>{record.afterTitle || record.beforeTitle || record.blockKey}</h3>
                   </div>
-                  <span className={`status-pill status-${record.changeKind === "removed" ? "failed" : record.changeKind === "added" ? "ready" : "draft"}`}>
+                  <StatusPill status={record.changeKind === "removed" ? "failed" : record.changeKind === "added" ? "ready" : "draft"}>
                     {record.changeKind === "changed" ? "已变更" : record.changeKind === "added" ? "新增" : "已移除"}
-                  </span>
+                  </StatusPill>
                 </div>
                 <p className="detail-copy">
                   {record.sectionLabel ?? record.platformLabel ?? "系统块"}
@@ -312,9 +301,9 @@ export function ArticleHistoryPanel({
                     <p className="eyebrow editorial-block-kicker">{formatPlatformLabel(block.platformScope ?? "x")}</p>
                     <h3>{draft.isLocked ? "已锁定平台文案" : "可重建平台文案"}</h3>
                   </div>
-                  <span className={`status-pill ${draft.isLocked ? "status-approved" : "status-draft"}`}>
+                  <StatusPill status={draft.isLocked ? "approved" : "draft"}>
                     {draft.isLocked ? "已锁定" : "可重建"}
-                  </span>
+                  </StatusPill>
                 </header>
                 <label className="field-shell article-note-field">
                   <span>平台正文</span>
@@ -408,7 +397,7 @@ export function ArticleHistoryPanel({
 
         <div className="publish-job-list">
           {publishJobs.length === 0 ? (
-            <div className="empty-state">当前稿件还没有发布任务。</div>
+            <EmptyState>当前稿件还没有发布任务。</EmptyState>
           ) : (
             publishJobs.map((job) => {
               const metrics = readMetrics(job, feedbackForms);
@@ -420,7 +409,7 @@ export function ArticleHistoryPanel({
                       <p>{formatDateTime(job.scheduledFor)}</p>
                     </div>
                     <div className="publish-job-meta">
-                      <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
+                      <StatusPill status={job.status}>{formatPublishStatus(job.status)}</StatusPill>
                       <span>重试 {job.retries}</span>
                     </div>
                   </div>
