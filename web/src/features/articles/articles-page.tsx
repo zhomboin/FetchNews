@@ -528,7 +528,7 @@ export function ArticlesPage({ health }: ArticlesPageProps): React.JSX.Element {
     <div className="page-stack editorial-workbench-page">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Editorial Workbench</p>
+          <p className="eyebrow">编辑工作台</p>
           <h1>三栏编辑工作台</h1>
           <p className="lede">
             把模板策略、段落级人工干预、版本恢复和多平台分发放进一条可追溯的编辑链路里，确保系统生成与人工修改不会互相覆盖。

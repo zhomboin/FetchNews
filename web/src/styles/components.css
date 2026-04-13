@@ -1,0 +1,27 @@
+.rail-nav a:focus-visible,
+.detail-link:focus-visible,
+.button-primary:focus-visible,
+.button-secondary:focus-visible,
+.filter-chip:focus-visible,
+.selector-chip:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: rgba(185, 147, 94, 0.46);
+  box-shadow:
+    0 0 0 2px rgba(245, 241, 232, 0.92),
+    0 0 0 4px rgba(185, 147, 94, 0.28);
+}
+
+.detail-link {
+  cursor: pointer;
+}
+
+.detail-link:disabled,
+.button-primary:disabled,
+.button-secondary:disabled,
+.filter-chip:disabled,
+.selector-chip:disabled {
+  pointer-events: none;
+}

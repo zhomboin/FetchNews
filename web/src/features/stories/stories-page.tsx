@@ -1,6 +1,7 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { EmptyState, StatusPill } from "../../components/console";
 import {
   NormalizedItemRecord,
   StoryRecord,
@@ -228,10 +229,10 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
     <div className="page-stack">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Story Clustering</p>
+          <p className="eyebrow">审核聚类台</p>
           <h1>标准化与栏目检查</h1>
           <p className="lede">
-            在这一页同时检查 stories、主题栏目、风险标记和 normalized items，确认聚类结果是否适合进入日报、周报与月报生成链路。
+            在这一页同时检查聚类结果、主题栏目、风险标记和标准化条目，确认内容是否适合进入日报、周报与月报生成链路。
           </p>
         </div>
 
@@ -241,7 +242,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
             <strong>{health}</strong>
           </div>
           <div className="meta-chip">
-            <span>Pipeline 状态</span>
+            <span>流水线状态</span>
             <strong>{rebuildMutation.isPending ? "手动重建中" : "采集完成后自动刷新"}</strong>
           </div>
         </div>
@@ -249,9 +250,9 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
 
       <section className="stats-grid" aria-label="标准化与聚类摘要">
         <article className="metric-cell">
-          <p>Stories</p>
+          <p>聚类故事</p>
           <strong>{metrics.filteredStories}</strong>
-          <span>当前筛选结果，全部 {metrics.totalStories} 条 story</span>
+          <span>当前筛选结果，共 {metrics.totalStories} 条故事</span>
         </article>
         <article className="metric-cell">
           <p>已审核</p>
@@ -273,7 +274,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
       <section className="panel story-panel">
         <header className="section-title ingestion-head">
           <div>
-            <p>Pipeline Controls</p>
+            <p>流程控制</p>
             <h2>筛选、重建与栏目总览</h2>
           </div>
           <span>{storiesQuery.isFetching || normalizedItemsQuery.isFetching ? "正在刷新" : "30 秒自动刷新"}</span>
@@ -347,12 +348,12 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
 
         <div className="risk-overview-grid">
           <article className="risk-stat" data-tone="watch">
-            <p>需复核 story</p>
+            <p>需复核故事</p>
             <strong>{metrics.flaggedStories}</strong>
             <span>当前筛选结果里存在风险标记，建议先看来源质量。</span>
           </article>
           <article className="risk-stat" data-tone="calm">
-            <p>低风险 story</p>
+            <p>低风险故事</p>
             <strong>{cleanStories}</strong>
             <span>已覆盖较强来源，可直接进入人工审核和排版。</span>
           </article>
@@ -370,7 +371,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
             onClick={() => rebuildMutation.mutate()}
             disabled={rebuildMutation.isPending}
           >
-            {rebuildMutation.isPending ? "重建中..." : "重建 Stories Pipeline"}
+            {rebuildMutation.isPending ? "重建中..." : "重建聚类流水线"}
           </button>
           <button
             type="button"
@@ -389,12 +390,12 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <div className="action-status">
           {rebuildMutation.isSuccess ? (
             <strong>
-              已重建 {rebuildMutation.data.normalizedItems} 条 normalized items，生成 {rebuildMutation.data.stories} 条 stories
+              已重建 {rebuildMutation.data.normalizedItems} 条标准化条目，生成 {rebuildMutation.data.stories} 条聚类故事
             </strong>
           ) : null}
           {rebuildMutation.isError ? <strong>重建失败，请检查后端日志。</strong> : null}
-          {approveMutation.isSuccess ? <strong>story 已标记为已审核。</strong> : null}
-          {approveMutation.isError ? <strong>story 审核失败，请稍后重试。</strong> : null}
+          {approveMutation.isSuccess ? <strong>故事已标记为已审核。</strong> : null}
+          {approveMutation.isError ? <strong>故事审核失败，请稍后重试。</strong> : null}
         </div>
       </section>
 
@@ -402,7 +403,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <article className="panel story-list-panel">
           <header className="section-title">
             <div>
-              <p>Clustered Stories</p>
+              <p>聚类结果</p>
               <h2>聚类结果</h2>
             </div>
             <span>
@@ -410,13 +411,13 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
             </span>
           </header>
 
-          {storiesQuery.isLoading ? <div className="empty-state">正在加载 stories...</div> : null}
-          {storiesQuery.isError ? <div className="empty-state">stories 加载失败，请确认 `/stories` 接口可用。</div> : null}
+          {storiesQuery.isLoading ? <EmptyState>正在加载聚类结果...</EmptyState> : null}
+          {storiesQuery.isError ? <EmptyState>聚类结果加载失败，请确认 `/stories` 接口可用。</EmptyState> : null}
           {!storiesQuery.isLoading && !storiesQuery.isError && stories.length === 0 ? (
-            <div className="empty-state">当前还没有 story。先执行一次采集，或手动重建 pipeline。</div>
+            <EmptyState>当前还没有聚类故事。先执行一次采集，或手动重建流水线。</EmptyState>
           ) : null}
           {!storiesQuery.isLoading && !storiesQuery.isError && stories.length > 0 && filteredStories.length === 0 ? (
-            <div className="empty-state">当前筛选条件下没有 story，调整筛选后再试。</div>
+            <EmptyState>当前筛选条件下没有聚类故事，调整筛选后再试。</EmptyState>
           ) : null}
 
           {!storiesQuery.isLoading && !storiesQuery.isError && filteredStories.length > 0 ? (
@@ -429,20 +430,20 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
                       <div>
                         <div className="story-topline">
                           <p className="story-kicker">{story.storyKey}</p>
-                          <span className={`status-pill status-${story.status}`}>{formatStoryStatus(story.status)}</span>
+                          <StatusPill status={story.status}>{formatStoryStatus(story.status)}</StatusPill>
                           <span className="section-badge">{formatSectionLabel(story.primarySection)}</span>
                         </div>
                         <h3>{story.clusterTitle}</h3>
                       </div>
                       <div className="story-score-pill">
-                        <span>Score</span>
+                        <span>评分</span>
                         <strong>{story.score.toFixed(1)}</strong>
                       </div>
                     </div>
 
                     <div className="story-risk-rail" data-tone={risk.tone}>
                       <div className="story-risk-copy">
-                        <p>Risk Signal</p>
+                        <p>风险信号</p>
                         <strong>{risk.label}</strong>
                         <span>{risk.detail}</span>
                       </div>
@@ -503,7 +504,7 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
 
                     <div className="story-actions">
                       <span>
-                        {story.status === "approved" ? "该 story 已完成人工确认。" : "确认后可进入后续日报、周报与月报生成链路。"}
+                        {story.status === "approved" ? "该故事已完成人工确认。" : "确认后可进入后续日报、周报与月报生成链路。"}
                       </span>
                       <button
                         type="button"
@@ -524,16 +525,16 @@ export function StoriesPage({ health }: StoriesPageProps): React.JSX.Element {
         <article className="panel normalized-panel">
           <header className="section-title">
             <div>
-              <p>Normalized Items</p>
+              <p>标准化条目</p>
               <h2>标准化结果</h2>
             </div>
             <span>{filteredNormalizedItems.length} 条</span>
           </header>
 
-          {normalizedItemsQuery.isLoading ? <div className="empty-state">正在加载 normalized items...</div> : null}
-          {normalizedItemsQuery.isError ? <div className="empty-state">normalized items 加载失败，请确认 `/normalized-items` 接口可用。</div> : null}
+          {normalizedItemsQuery.isLoading ? <EmptyState>正在加载标准化条目...</EmptyState> : null}
+          {normalizedItemsQuery.isError ? <EmptyState>标准化条目加载失败，请确认 `/normalized-items` 接口可用。</EmptyState> : null}
           {!normalizedItemsQuery.isLoading && !normalizedItemsQuery.isError && filteredNormalizedItems.length === 0 ? (
-            <div className="empty-state">当前筛选条件下没有 normalized items。</div>
+            <EmptyState>当前筛选条件下没有标准化条目。</EmptyState>
           ) : null}
 
           {!normalizedItemsQuery.isLoading && !normalizedItemsQuery.isError && filteredNormalizedItems.length > 0 ? (

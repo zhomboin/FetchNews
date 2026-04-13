@@ -116,7 +116,7 @@ export function ArticleStrategyRail({
     <section className="panel editorial-workbench-rail">
       <header className="section-title editorial-section-title">
         <div>
-          <p>Strategy Rail</p>
+          <p>策略侧栏</p>
           <h2>编辑策略</h2>
         </div>
         <span>{health}</span>

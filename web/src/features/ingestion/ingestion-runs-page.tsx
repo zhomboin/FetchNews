@@ -6,7 +6,7 @@ import { IngestRunRecord, SourceSpec, fetchIngestRuns, fetchSourceSpecs, trigger
 const SOURCE_SPECS_QUERY_KEY = ["sourceSpecs"] as const;
 const INGEST_RUNS_QUERY_KEY = ["ingestRuns"] as const;
 const RUN_POLLING_INTERVAL_MS = 30_000;
-const RUNNING_LABEL = "Running";
+const RUNNING_LABEL = "运行中";
 
 type IngestionRunsPageProps = {
   health: string;
@@ -83,17 +83,17 @@ function formatGovernanceSummary(source: SourceSpec): string {
   const parts: string[] = [];
 
   if (baseTrustScore !== null && source.effectiveTrustScore !== null) {
-    parts.push(`Trust ${baseTrustScore.toFixed(1)} -> ${source.effectiveTrustScore.toFixed(1)}`);
+    parts.push(`信任分 ${baseTrustScore.toFixed(1)} -> ${source.effectiveTrustScore.toFixed(1)}`);
   }
   if (baseScoreMultiplier !== null && source.effectiveScoreMultiplier !== null) {
-    parts.push(`Rank ${baseScoreMultiplier.toFixed(2)}x -> ${source.effectiveScoreMultiplier.toFixed(2)}x`);
+    parts.push(`排序倍率 ${baseScoreMultiplier.toFixed(2)}x -> ${source.effectiveScoreMultiplier.toFixed(2)}x`);
   }
 
   const failedRuns = readSignal(source, "failed_ingest_runs");
   const pendingStories = readSignal(source, "pending_stories");
   const flaggedStories = readSignal(source, "flagged_stories");
   if (failedRuns > 0 || pendingStories > 0 || flaggedStories > 0) {
-    parts.push(`Failures ${failedRuns} / Pending ${pendingStories} / Flagged ${flaggedStories}`);
+    parts.push(`失败 ${failedRuns} / 待审核 ${pendingStories} / 需复核 ${flaggedStories}`);
   }
 
   const engagementImpressions = readSignal(source, "engagement_impressions");
@@ -111,6 +111,19 @@ function formatGovernanceSummary(source: SourceSpec): string {
   }
 
   return parts.join(" · ");
+}
+
+function formatRunStatus(status: IngestRunRecord["status"]): string {
+  if (status === "running") {
+    return "运行中";
+  }
+  if (status === "completed") {
+    return "已完成";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  return status;
 }
 
 /**
@@ -165,11 +178,10 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
     <div className="page-stack">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Ingestion Ledger</p>
-          <h1>Ingestion operations</h1>
+          <p className="eyebrow">采集台账</p>
+          <h1>采集运行台</h1>
           <p className="lede">
-            Inspect recent source runs, governance adjustments, coverage breadth, and manual trigger controls from one
-            control surface.
+            在一个控制台视图里查看来源运行批次、治理调节、覆盖范围和手动触发入口，确保采集链路稳定可控。
           </p>
         </div>
 
@@ -179,46 +191,46 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
             <strong>{health}</strong>
           </div>
           <div className="meta-chip">
-            <span>Scheduler</span>
-            <strong>Default sources on cadence</strong>
+            <span>调度模式</span>
+            <strong>默认来源按节奏运行</strong>
           </div>
         </div>
       </section>
 
-      <section className="stats-grid" aria-label="Ingestion summary">
+      <section className="stats-grid" aria-label="采集摘要">
         <article className="metric-cell">
-          <p>Runs</p>
+          <p>运行批次</p>
           <strong>{metrics.totalRuns}</strong>
-          <span>Recent ingestion batches returned by the API</span>
+          <span>接口当前返回的最近采集批次</span>
         </article>
         <article className="metric-cell">
-          <p>Failed runs</p>
+          <p>失败批次</p>
           <strong>{metrics.failedRuns}</strong>
-          <span>Batches that contained at least one failed source</span>
+          <span>至少包含一个失败来源的批次</span>
         </article>
         <article className="metric-cell">
-          <p>Items ingested</p>
+          <p>采集条目</p>
           <strong>{metrics.totalItems}</strong>
-          <span>Total raw items persisted across visible runs</span>
+          <span>当前可见批次累计写入的原始条目数</span>
         </article>
         <article className="metric-cell">
-          <p>Sources processed</p>
+          <p>处理来源</p>
           <strong>{metrics.totalSources}</strong>
-          <span>Total source executions across the same run history</span>
+          <span>同一时间窗内累计处理的来源次数</span>
         </article>
       </section>
 
       <section className="panel trigger-panel">
         <header className="section-title ingestion-head">
           <div>
-            <p>Manual Trigger</p>
-            <h2>Launch a manual ingest run</h2>
+            <p>手动触发</p>
+            <h2>启动一次手动采集</h2>
           </div>
-          <span>P0 sources selected by default</span>
+          <span>默认勾选 P0 来源</span>
         </header>
 
-        {sourcesQuery.isLoading ? <div className="empty-state">Loading source catalog...</div> : null}
-        {sourcesQuery.isError ? <div className="empty-state">Source catalog failed to load. Check the /sources endpoint.</div> : null}
+        {sourcesQuery.isLoading ? <div className="empty-state">正在加载来源目录...</div> : null}
+        {sourcesQuery.isError ? <div className="empty-state">来源目录加载失败，请检查 `/sources` 接口。</div> : null}
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
           <div className="trigger-layout">
@@ -241,10 +253,10 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
 
             <div className="action-row">
               <button type="button" className="button-secondary" onClick={selectP0Sources} disabled={sourcesQuery.isLoading}>
-                Select P0
+                选择 P0
               </button>
               <button type="button" className="button-secondary" onClick={selectAllSources} disabled={sourcesQuery.isLoading}>
-                Select all enabled
+                选择全部启用来源
               </button>
               <button
                 type="button"
@@ -252,14 +264,14 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                 onClick={() => triggerMutation.mutate(selectedSlugs)}
                 disabled={selectedSlugs.length === 0 || triggerMutation.isPending}
               >
-                {triggerMutation.isPending ? "Running..." : "Run ingest now"}
+                {triggerMutation.isPending ? "执行中..." : "立即执行采集"}
               </button>
             </div>
 
             <div className="action-status">
-              <span>{selectedSlugs.length} sources selected</span>
-              {triggerMutation.isSuccess ? <strong>Created ingest run #{triggerMutation.data.id}</strong> : null}
-              {triggerMutation.isError ? <strong>Manual trigger failed. Try again after checking the logs.</strong> : null}
+              <span>已选择 {selectedSlugs.length} 个来源</span>
+              {triggerMutation.isSuccess ? <strong>已创建采集批次 #{triggerMutation.data.id}</strong> : null}
+              {triggerMutation.isError ? <strong>手动触发失败，请检查日志后重试。</strong> : null}
             </div>
           </div>
         ) : null}
@@ -268,10 +280,10 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
       <section className="panel source-governance-panel">
         <header className="section-title ingestion-head">
           <div>
-            <p>Source Governance</p>
-            <h2>Feedback-adjusted source posture</h2>
+            <p>来源治理</p>
+            <h2>反馈调节后的来源状态</h2>
           </div>
-          <span>{sourceSpecs.length} sources</span>
+          <span>{sourceSpecs.length} 个来源</span>
         </header>
 
         {!sourcesQuery.isLoading && !sourcesQuery.isError ? (
@@ -286,7 +298,7 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                   <span className="source-chip">{source.priority}</span>
                 </div>
                 <span className="source-governance-note">
-                  {formatGovernanceSummary(source) || "No additional governance adjustments applied yet."}
+                  {formatGovernanceSummary(source) || "当前还没有额外的治理调整。"}
                 </span>
                 {source.governanceFlags.length > 0 ? (
                   <div className="failure-chip-list">
@@ -309,16 +321,16 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
       <section className="panel ingestion-panel">
         <header className="section-title ingestion-head">
           <div>
-            <p>Run History</p>
-            <h2>Recent ingestion batches</h2>
+            <p>运行历史</p>
+            <h2>最近采集批次</h2>
           </div>
-          <span>{runsQuery.isFetching ? "Refreshing" : "Auto refresh every 30s"}</span>
+          <span>{runsQuery.isFetching ? "刷新中" : "每 30 秒自动刷新"}</span>
         </header>
 
-        {runsQuery.isLoading ? <div className="empty-state">Loading ingestion history...</div> : null}
-        {runsQuery.isError ? <div className="empty-state">Ingestion history failed to load. Check the backend API.</div> : null}
+        {runsQuery.isLoading ? <div className="empty-state">正在加载采集历史...</div> : null}
+        {runsQuery.isError ? <div className="empty-state">采集历史加载失败，请检查后端接口。</div> : null}
         {!runsQuery.isLoading && !runsQuery.isError && runs.length === 0 ? (
-          <div className="empty-state">No ingestion runs recorded yet.</div>
+          <div className="empty-state">当前还没有采集批次记录。</div>
         ) : null}
 
         {!runsQuery.isLoading && !runsQuery.isError && runs.length > 0 ? (
@@ -327,8 +339,8 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
               <article key={run.id} className="ingest-run-row">
                 <div className="run-main">
                   <div className="run-head">
-                    <h3>Run #{run.id}</h3>
-                    <span className={`status-pill status-${run.status}`}>{run.status}</span>
+                    <h3>采集批次 #{run.id}</h3>
+                    <span className={`status-pill status-${run.status}`}>{formatRunStatus(run.status)}</span>
                   </div>
 
                   <div className="source-chip-list">
@@ -348,30 +360,30 @@ export function IngestionRunsPage({ health }: IngestionRunsPageProps): React.JSX
                       ))}
                     </div>
                   ) : (
-                    <p className="run-note">No source errors were recorded for this batch.</p>
-                  )}
-                </div>
+                        <p className="run-note">该批次没有记录到来源错误。</p>
+                      )}
+                    </div>
 
-                <div className="run-metrics">
-                  <div>
-                    <span>Sources</span>
-                    <strong>
-                      {run.sourcesSucceeded}/{run.sourcesTotal}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Items</span>
-                    <strong>{run.itemsIngested}</strong>
-                  </div>
-                  <div>
-                    <span>Started</span>
-                    <strong>{formatDateTime(run.startedAt)}</strong>
-                  </div>
-                  <div>
-                    <span>Finished</span>
-                    <strong>{formatDateTime(run.finishedAt)}</strong>
-                  </div>
-                </div>
+                    <div className="run-metrics">
+                      <div>
+                        <span>来源</span>
+                        <strong>
+                          {run.sourcesSucceeded}/{run.sourcesTotal}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>条目</span>
+                        <strong>{run.itemsIngested}</strong>
+                      </div>
+                      <div>
+                        <span>开始时间</span>
+                        <strong>{formatDateTime(run.startedAt)}</strong>
+                      </div>
+                      <div>
+                        <span>结束时间</span>
+                        <strong>{formatDateTime(run.finishedAt)}</strong>
+                      </div>
+                    </div>
               </article>
             ))}
           </div>

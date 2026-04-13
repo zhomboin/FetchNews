@@ -1,6 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { formatSectionLabel } from "../../lib/api";
 import {
@@ -79,7 +79,7 @@ export function ArticleHistoryDetailPage(): React.JSX.Element {
     <div className="page-stack editorial-history-detail-page">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Editorial History</p>
+          <p className="eyebrow">编辑历史</p>
           <h1>编辑历史明细</h1>
           <p className="lede">按版本查看块级差异、渠道影响和人工干预记录，适合回滚前核对真实变更范围。</p>
         </div>
@@ -88,12 +88,12 @@ export function ArticleHistoryDetailPage(): React.JSX.Element {
       <section className="panel editorial-history-detail-shell">
         <header className="section-title editorial-section-title">
           <div>
-            <p>Revision Drill-down</p>
+            <p>版本下钻</p>
             <h2>{selectedArticle?.title ?? "请选择稿件"}</h2>
           </div>
-          <a className="detail-link" href="/articles">
+          <Link className="detail-link" to="/articles">
             返回编辑台
-          </a>
+          </Link>
         </header>
 
         <div className="editorial-history-toolbar">

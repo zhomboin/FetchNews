@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
+import { DetailLink } from "./components/console";
 import { LoginPage } from "./features/auth/login-page";
 import { ArticlesPage } from "./features/articles/articles-page";
 import { ArticleHistoryDetailPage } from "./features/articles/article-history-detail-page";
@@ -15,14 +16,14 @@ import { getAccessToken, useAuthStore } from "./lib/auth-store";
 import "./styles.css";
 
 const QUERY_CLIENT = new QueryClient();
-const DEFAULT_HEALTH_STATUS = "Preview mode";
-const BACKEND_OFFLINE_STATUS = "Preview mode | Backend offline";
+const DEFAULT_HEALTH_STATUS = "预览模式";
+const BACKEND_OFFLINE_STATUS = "预览模式 | 后端离线";
 const NAV_SECTIONS = [
-  { path: "/", label: "Overview" },
-  { path: "/ingestion", label: "Ingestion" },
-  { path: "/stories", label: "Stories" },
-  { path: "/articles", label: "Drafts" },
-  { path: "/publishing", label: "Publishing" },
+  { path: "/", label: "总览" },
+  { path: "/ingestion", label: "采集" },
+  { path: "/stories", label: "审核" },
+  { path: "/articles", label: "草稿" },
+  { path: "/publishing", label: "发布" },
 ] as const;
 
 configureAccessTokenResolver(getAccessToken);
@@ -45,7 +46,7 @@ function Shell({ health, onLogout }: ShellProps): React.JSX.Element {
           </div>
           <div>
             <p className="brand-name">FetchNews</p>
-            <p className="brand-subtitle">Signal Review Console</p>
+            <p className="brand-subtitle">资讯审核控制台</p>
           </div>
         </div>
 
@@ -58,12 +59,12 @@ function Shell({ health, onLogout }: ShellProps): React.JSX.Element {
         </nav>
 
         <div className="rail-foot">
-          <p>Operator</p>
+          <p>当前账号</p>
           <strong>{currentUser?.displayName ?? "Guest"}</strong>
           <span>{currentUser?.role ?? "auth disabled"}</span>
-          <button type="button" className="detail-link detail-link-soft rail-logout" onClick={onLogout}>
-            Sign out
-          </button>
+          <DetailLink className="rail-logout" onClick={onLogout} soft>
+            退出登录
+          </DetailLink>
         </div>
       </aside>
 
@@ -172,7 +173,7 @@ function App(): React.JSX.Element {
     return (
       <div className="login-shell">
         <section className="login-panel login-loading-panel">
-          <p className="eyebrow">Protected Console</p>
+          <p className="eyebrow">受保护控制台</p>
           <h1>正在同步登录状态</h1>
           <p className="lede">系统正在确认鉴权配置和当前会话，请稍候。</p>
         </section>

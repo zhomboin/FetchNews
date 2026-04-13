@@ -11,13 +11,11 @@ describe("LoginPage", () => {
 
     render(<LoginPage errorMessage={null} isSubmitting={false} onSubmit={handleSubmit} />);
 
-    const usernameInput = screen.getByPlaceholderText("admin");
-    const passwordInput = screen.getByPlaceholderText("?????");
-    await user.clear(usernameInput);
+    const usernameInput = screen.getByPlaceholderText("请输入用户名");
+    const passwordInput = screen.getByPlaceholderText("请输入密码");
     await user.type(usernameInput, "editor");
-    await user.clear(passwordInput);
     await user.type(passwordInput, "editor-secret");
-    await user.click(screen.getByRole("button", { name: "?????" }));
+    await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(handleSubmit).toHaveBeenCalledWith("editor", "editor-secret");
   });

@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 
+import { DetailLink, EmptyState, StatusPill } from "../../components/console";
 import {
   AlertRecord,
   ArticleDraftRecord,
@@ -54,52 +54,52 @@ function formatPlatform(platform: string): string {
 
 function formatPublishStatus(status: string): string {
   if (status === "scheduled") {
-    return "Scheduled";
+    return "待发布";
   }
   if (status === "published") {
-    return "Published";
+    return "已发布";
   }
   if (status === "failed") {
-    return "Failed";
+    return "失败";
   }
   return status;
 }
 
 function formatArticleStatus(status: string): string {
   if (status === "ready") {
-    return "Ready";
+    return "就绪";
   }
   if (status === "scheduled") {
-    return "Scheduled";
+    return "已排程";
   }
   if (status === "published") {
-    return "Published";
+    return "已发布";
   }
   if (status === "failed") {
-    return "Failed";
+    return "失败";
   }
-  return "Draft";
+  return "草稿";
 }
 
 function formatFailureCategory(category: string): string {
   if (category === "ingest") {
-    return "Ingest";
+    return "采集";
   }
   if (category === "publish") {
-    return "Publish";
+    return "发布";
   }
   return category;
 }
 
 function formatRecommendationCategory(category: string): string {
   if (category === "section") {
-    return "Section";
+    return "栏目";
   }
   if (category === "platform") {
-    return "Platform";
+    return "平台";
   }
   if (category === "source") {
-    return "Source";
+    return "来源";
   }
   return category;
 }
@@ -107,33 +107,33 @@ function formatRecommendationCategory(category: string): string {
 function buildMetrics(summary: Awaited<ReturnType<typeof fetchOpsSummary>> | undefined): OpsMetric[] {
   if (summary === undefined) {
     return [
-      { label: "Items ingested", value: "--", note: "Waiting for backend metrics" },
-      { label: "Approved stories", value: "--", note: "Waiting for backend metrics" },
-      { label: "Publish success", value: "--", note: "Waiting for backend metrics" },
-      { label: "Engagement clicks", value: "--", note: "Waiting for backend metrics" },
+      { label: "采集条目", value: "--", note: "等待后端指标" },
+      { label: "已审核故事", value: "--", note: "等待后端指标" },
+      { label: "发布成功率", value: "--", note: "等待后端指标" },
+      { label: "互动点击", value: "--", note: "等待后端指标" },
     ];
   }
 
   return [
     {
-      label: "Items ingested",
+      label: "采集条目",
       value: `${summary.itemsIngestedTotal}`,
-      note: `${summary.ingestRunsTotal} runs, ${summary.ingestRunsFailed} failed`,
+      note: `${summary.ingestRunsTotal} 次运行，失败 ${summary.ingestRunsFailed} 次`,
     },
     {
-      label: "Approved stories",
+      label: "已审核故事",
       value: `${summary.storiesApproved}`,
-      note: `${summary.storiesPending} pending review`,
+      note: `待审核 ${summary.storiesPending} 条`,
     },
     {
-      label: "Publish success",
+      label: "发布成功率",
       value: `${Math.round(summary.publishSuccessRate * 100)}%`,
-      note: `${summary.publishJobsPublished} published, ${summary.publishJobsFailed} failed`,
+      note: `已发布 ${summary.publishJobsPublished} 条，失败 ${summary.publishJobsFailed} 条`,
     },
     {
-      label: "Engagement clicks",
+      label: "互动点击",
       value: `${summary.engagementClicksTotal}`,
-      note: `${summary.engagementInteractionsTotal} interactions, ${summary.engagementOpensTotal} opens`,
+      note: `${summary.engagementInteractionsTotal} 次互动，${summary.engagementOpensTotal} 次打开`,
     },
   ];
 }
@@ -197,15 +197,15 @@ function pickMomentumSections(metrics: SectionReviewMetricRecord[]): SectionRevi
 
 function formatMomentumTier(momentumTier: string): string {
   if (momentumTier === "hot") {
-    return "Hot";
+    return "高热";
   }
   if (momentumTier === "rising") {
-    return "Rising";
+    return "上升";
   }
   if (momentumTier === "cooling") {
-    return "Cooling";
+    return "降温";
   }
-  return "Steady";
+  return "平稳";
 }
 
 function pickRecommendations(recommendations: FeedbackRecommendationRecord[]): FeedbackRecommendationRecord[] {
@@ -318,17 +318,17 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
   const sectionMetrics = pickSectionMetrics(summary?.sectionReviewMetrics ?? []);
   const momentumSections = pickMomentumSections(summary?.sectionReviewMetrics ?? []);
   const feedbackRecommendations = pickRecommendations(summary?.feedbackRecommendations ?? []);
-  const title = mode === "publishing" ? "Publishing Operations" : "Operations Overview";
+  const title = mode === "publishing" ? "发布运营总览" : "运营总览";
   const lead =
     mode === "publishing"
-      ? "Track delivery quality, platform health, review backlog, and the next actions the team should take before retrying distribution."
-      : "Watch ingestion, editorial review, draft generation, and multi-platform delivery from one warm-metal control room.";
+      ? "跟踪分发质量、平台健康度、审核积压和下一步处置动作，在重试前快速定位风险。"
+      : "在同一个暖白金属控制台里查看采集、审核、草稿生成与多平台分发状态。";
 
   return (
     <div className="preview-page ops-dashboard-page">
       <section className="intro-band">
         <div className="intro-copy">
-          <p className="eyebrow">Operations Console</p>
+          <p className="eyebrow">运营控制台</p>
           <h1>{title}</h1>
           <p className="lede">{lead}</p>
         </div>
@@ -339,13 +339,13 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
             <strong>{health}</strong>
           </div>
           <div className="meta-chip">
-            <span>Refresh interval</span>
-            <strong>30s</strong>
+            <span>刷新间隔</span>
+            <strong>30 秒</strong>
           </div>
         </div>
       </section>
 
-      <section className="metric-strip" aria-label="Operations snapshot">
+      <section className="metric-strip" aria-label="运营快照">
         {metrics.map((metric) => (
           <article key={metric.label} className="metric-cell">
             <p>{metric.label}</p>
@@ -356,14 +356,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
       </section>
 
 
-      <section className="ops-alert-strip" aria-label="Operations alerts">
+      <section className="ops-alert-strip" aria-label="运营告警">
         {alerts.length === 0 ? (
           <article className="ops-alert-card" data-tone="calm">
             <div>
-              <p>Alerts</p>
-              <strong>No active alerts</strong>
+              <p>告警</p>
+              <strong>当前没有活跃告警</strong>
             </div>
-            <span>Current ingestion, review, and publishing signals look stable.</span>
+            <span>当前采集、审核和发布信号整体稳定。</span>
           </article>
         ) : (
           alerts.map((alert) => (
@@ -373,9 +373,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   <p>{alert.category}</p>
                   <strong>{alert.title}</strong>
                 </div>
-                <span className={`status-pill status-${alert.severity === "critical" ? "failed" : alert.severity === "warning" ? "pending" : "approved"}`}>
+                <StatusPill status={alert.severity === "critical" ? "failed" : alert.severity === "warning" ? "pending" : "approved"}>
                   {alert.count}
-                </span>
+                </StatusPill>
               </div>
               <span>{alert.summary}</span>
               <p className="failure-suggestion">{alert.suggestion}</p>
@@ -388,10 +388,10 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         <article className="panel ops-health-panel">
           <header className="section-title">
             <div>
-              <p>Pipeline Health</p>
-              <h2>Core workflow health</h2>
+              <p>流程健康度</p>
+              <h2>核心工作流状态</h2>
             </div>
-            <span>{summaryQuery.isFetching ? "Refreshing" : "Live snapshot"}</span>
+            <span>{summaryQuery.isFetching ? "刷新中" : "实时快照"}</span>
           </header>
 
           <div className="runway ops-runway">
@@ -400,9 +400,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>1</span>
               </div>
               <div className="runway-copy">
-                <strong>Ingest</strong>
+                <strong>采集</strong>
                 <p>{summary?.ingestRunsTotal ?? 0}</p>
-                <span>{summary?.ingestRunsFailed ?? 0} runs with errors</span>
+                <span>{summary?.ingestRunsFailed ?? 0} 次运行带错误</span>
               </div>
             </div>
             <div className="runway-step">
@@ -410,9 +410,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>2</span>
               </div>
               <div className="runway-copy">
-                <strong>Review</strong>
+                <strong>审核</strong>
                 <p>{summary?.storiesApproved ?? 0}</p>
-                <span>{summary?.storiesPending ?? 0} waiting for review</span>
+                <span>{summary?.storiesPending ?? 0} 条待审核</span>
               </div>
             </div>
             <div className="runway-step">
@@ -420,31 +420,31 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                 <span>3</span>
               </div>
               <div className="runway-copy">
-                <strong>Publish</strong>
+                <strong>发布</strong>
                 <p>{summary?.publishJobsPublished ?? 0}</p>
-                <span>{summary?.publishJobsScheduled ?? 0} still scheduled</span>
+                <span>{summary?.publishJobsScheduled ?? 0} 条仍待执行</span>
               </div>
             </div>
           </div>
 
           <div className="risk-overview-grid ops-risk-grid">
             <div className="risk-stat" data-tone={(summary?.articlesFailed ?? 0) > 0 ? "watch" : "calm"}>
-              <p>Failed drafts</p>
+              <p>失败草稿</p>
               <strong>{summary?.articlesFailed ?? 0}</strong>
-              <span>Drafts that failed after publish writeback and need operator attention.</span>
+              <span>发布回写后失败、需要人工介入的草稿。</span>
             </div>
             <div className="risk-stat" data-tone={(summary?.duePublishJobs ?? 0) > 0 ? "watch" : "calm"}>
-              <p>Due but not completed</p>
+              <p>到期未完成</p>
               <strong>{summary?.duePublishJobs ?? 0}</strong>
-              <span>Jobs already due but still waiting for dispatch or poll completion.</span>
+              <span>已经到期但仍等待分发或轮询收敛的任务。</span>
             </div>
             <div
               className="risk-stat"
               data-tone={(summary?.feedbackRecommendations.length ?? 0) > 0 ? "watch" : "calm"}
             >
-              <p>Action queue</p>
+              <p>行动队列</p>
               <strong>{summary?.feedbackRecommendations.length ?? 0}</strong>
-              <span>Recommendations generated from review backlog, failures, and platform signals.</span>
+              <span>根据审核积压、失败情况和平台信号生成的建议动作。</span>
             </div>
           </div>
         </article>
@@ -453,14 +453,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           <article className="panel ops-section-panel">
             <header className="section-title">
               <div>
-                <p>Section Review</p>
-                <h2>Editorial load by section</h2>
+                <p>栏目审核</p>
+                <h2>按栏目查看编辑负载</h2>
               </div>
-              <span>{sectionMetrics.length} sections</span>
+              <span>{sectionMetrics.length} 个栏目</span>
             </header>
 
             {sectionMetrics.length === 0 ? (
-              <div className="empty-state">No reviewed or pending stories yet. Run ingestion and approve a few stories first.</div>
+              <EmptyState>当前还没有已审核或待审核的 story。先执行采集并审核几条内容。</EmptyState>
             ) : (
               <div className="source-governance-grid section-metric-list">
                 {sectionMetrics.map((metric) => (
@@ -470,35 +470,35 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                         <p>{metric.section.replace(/_/g, " ")}</p>
                         <strong>{metric.label}</strong>
                       </div>
-                      <span className="status-pill status-pending">{metric.totalStories}</span>
+                      <StatusPill status="pending">{metric.totalStories}</StatusPill>
                     </div>
                     <div className="platform-metric-grid compact-gap">
                       <div>
-                        <span>Approved</span>
+                        <span>已审核</span>
                         <strong>{metric.approvedStories}</strong>
                       </div>
                       <div>
-                        <span>Pending</span>
+                        <span>待审核</span>
                         <strong>{metric.pendingStories}</strong>
                       </div>
                       <div>
-                        <span>Flagged</span>
+                        <span>需复核</span>
                         <strong>{metric.flaggedStories}</strong>
                       </div>
                       <div>
-                        <span>Total</span>
+                        <span>总数</span>
                         <strong>{metric.totalStories}</strong>
                       </div>
                     </div>
                     <p className="platform-metric-note">
                       {metric.engagementImpressions > 0
-                        ? `${formatMomentumTier(metric.momentumTier)} · CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} clicks`
-                        : "No post-publication engagement captured for this section yet."}
+                        ? `${formatMomentumTier(metric.momentumTier)} · CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} 次点击`
+                        : "当前栏目还没有沉淀发布后的互动数据。"}
                     </p>
                     <div className="panel-link-row">
-                      <Link className="detail-link" to={buildDetailPath("section", metric.section)}>
-                        Open section detail
-                      </Link>
+                      <DetailLink to={buildDetailPath("section", metric.section)}>
+                        打开栏目详情
+                      </DetailLink>
                     </div>
                   </article>
                 ))}
@@ -509,14 +509,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           <article className="panel ops-momentum-panel">
             <header className="section-title">
               <div>
-                <p>Section Momentum</p>
-                <h2>High-performing sections</h2>
+                <p>栏目势能</p>
+                <h2>表现较强的栏目</h2>
               </div>
-              <span>{momentumSections.length} tracked</span>
+              <span>{momentumSections.length} 个已跟踪栏目</span>
             </header>
 
             {momentumSections.length === 0 ? (
-              <div className="empty-state">No section engagement signals yet. Record publish feedback to reveal what is actually landing.</div>
+              <EmptyState>当前还没有栏目互动信号。先记录发布反馈，才能看出哪些栏目真正有效。</EmptyState>
             ) : (
               <div className="source-governance-grid momentum-section-list">
                 {momentumSections.map((metric) => (
@@ -534,7 +534,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                     </div>
                     <div className="platform-metric-grid compact-gap">
                       <div>
-                        <span>Clicks</span>
+                        <span>点击</span>
                         <strong>{metric.engagementClicks}</strong>
                       </div>
                       <div>
@@ -542,18 +542,18 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                         <strong>{Math.round(metric.clickThroughRate * 100)}%</strong>
                       </div>
                       <div>
-                        <span>Interactions</span>
+                        <span>互动</span>
                         <strong>{metric.engagementInteractions}</strong>
                       </div>
                       <div>
-                        <span>Impressions</span>
+                        <span>曝光</span>
                         <strong>{metric.engagementImpressions}</strong>
                       </div>
                     </div>
                     <div className="panel-link-row">
-                      <Link className="detail-link" to={buildDetailPath("section", metric.section)}>
-                        Open section detail
-                      </Link>
+                      <DetailLink to={buildDetailPath("section", metric.section)}>
+                        打开栏目详情
+                      </DetailLink>
                     </div>
                   </article>
                 ))}
@@ -564,14 +564,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
           <article className="panel ops-recommendation-panel">
             <header className="section-title">
               <div>
-                <p>Feedback Loop</p>
-                <h2>Recommended next actions</h2>
+                <p>反馈闭环</p>
+                <h2>建议的下一步动作</h2>
               </div>
-              <span>{feedbackRecommendations.length} suggestions</span>
+              <span>{feedbackRecommendations.length} 条建议</span>
             </header>
 
             {feedbackRecommendations.length === 0 ? (
-              <div className="empty-state">No actions recommended right now. Current review and publish signals look stable.</div>
+              <EmptyState>当前没有额外建议动作，审核和发布信号整体稳定。</EmptyState>
             ) : (
               <div className="failure-group-list recommendation-list">
                 {feedbackRecommendations.map((recommendation) => {
@@ -587,15 +587,15 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                           <p>{formatRecommendationCategory(recommendation.category)}</p>
                           <strong>{recommendation.title}</strong>
                         </div>
-                        <span className="status-pill status-pending">{recommendation.signalCount}</span>
+                        <StatusPill status="pending">{recommendation.signalCount}</StatusPill>
                       </div>
                       <p className="source-governance-note">{recommendation.summary}</p>
                       <p className="failure-suggestion">{recommendation.suggestion}</p>
                       {detailPath ? (
                         <div className="panel-link-row">
-                          <Link className="detail-link" to={detailPath}>
-                            Open recommendation detail
-                          </Link>
+                          <DetailLink to={detailPath}>
+                            打开建议详情
+                          </DetailLink>
                         </div>
                       ) : null}
                     </article>
@@ -611,14 +611,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         <article className="panel ops-diagnostics-panel">
           <header className="section-title">
             <div>
-              <p>Failure Diagnostics</p>
-              <h2>Recent grouped failures</h2>
+              <p>失败诊断</p>
+              <h2>最近的失败分组</h2>
             </div>
-            <span>{failureGroups.length} groups</span>
+            <span>{failureGroups.length} 个分组</span>
           </header>
 
           {failureGroups.length === 0 ? (
-            <div className="empty-state">No recent grouped failures. The current pipeline snapshot looks clean.</div>
+            <EmptyState>最近没有失败分组，当前流程快照较为干净。</EmptyState>
           ) : (
             <div className="failure-group-list">
               {failureGroups.map((group) => {
@@ -630,7 +630,7 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                         <p>{formatFailureCategory(group.category)}</p>
                         <strong>{group.reason}</strong>
                       </div>
-                      <span className="status-pill status-failed">{group.count}</span>
+                      <StatusPill status="failed">{group.count}</StatusPill>
                     </div>
                     <div className="failure-chip-list">
                       {group.targets.map((target) => (
@@ -642,9 +642,9 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                     <p className="failure-suggestion">{group.suggestion}</p>
                     {detailPath ? (
                       <div className="panel-link-row">
-                        <Link className="detail-link" to={detailPath}>
-                          Open failure detail
-                        </Link>
+                        <DetailLink to={detailPath}>
+                          打开失败详情
+                        </DetailLink>
                       </div>
                     ) : null}
                   </article>
@@ -657,14 +657,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         <article className="panel ops-platform-panel">
           <header className="section-title">
             <div>
-              <p>Platform Performance</p>
-              <h2>Publishing by channel</h2>
+              <p>平台表现</p>
+              <h2>按渠道查看发布表现</h2>
             </div>
-            <span>{platformMetrics.length} platforms</span>
+            <span>{platformMetrics.length} 个平台</span>
           </header>
 
           {platformMetrics.length === 0 ? (
-            <div className="empty-state">No platform metrics yet. Create and execute a few publish jobs first.</div>
+            <EmptyState>当前还没有平台指标。先创建并执行几条发布任务。</EmptyState>
           ) : (
             <div className="platform-metric-list">
               {platformMetrics.map((metric) => (
@@ -674,36 +674,36 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                     <span>{Math.round(metric.successRate * 100)}%</span>
                   </div>
                   <div className="platform-metric-grid">
-                    <div>
-                      <span>Total jobs</span>
-                      <strong>{metric.totalJobs}</strong>
+                      <div>
+                        <span>任务总数</span>
+                        <strong>{metric.totalJobs}</strong>
+                      </div>
+                      <div>
+                        <span>已发布</span>
+                        <strong>{metric.publishedJobs}</strong>
+                      </div>
+                      <div>
+                        <span>失败</span>
+                        <strong>{metric.failedJobs}</strong>
+                      </div>
+                      <div>
+                        <span>待执行</span>
+                        <strong>{metric.scheduledJobs}</strong>
+                      </div>
                     </div>
-                    <div>
-                      <span>Published</span>
-                      <strong>{metric.publishedJobs}</strong>
-                    </div>
-                    <div>
-                      <span>Failed</span>
-                      <strong>{metric.failedJobs}</strong>
-                    </div>
-                    <div>
-                      <span>Scheduled</span>
-                      <strong>{metric.scheduledJobs}</strong>
-                    </div>
-                  </div>
-                  <p className="platform-metric-note">
-                    {metric.engagementImpressions > 0
-                      ? `CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} clicks · ${metric.engagementInteractions} interactions`
+                    <p className="platform-metric-note">
+                      {metric.engagementImpressions > 0
+                      ? `CTR ${Math.round(metric.clickThroughRate * 100)}% · ${metric.engagementClicks} 次点击 · ${metric.engagementInteractions} 次互动`
                       : metric.lastError
-                        ? `Latest ${metric.lastFailureCategory ?? "platform"} issue: ${metric.lastError}`
-                        : "No recent platform errors or engagement data yet."}
-                  </p>
-                  <div className="panel-link-row">
-                    <Link className="detail-link" to={buildDetailPath("platform", metric.platform, metric.failedJobs > 0)}>
-                      {metric.failedJobs > 0 ? "Open failed jobs" : "Open platform detail"}
-                    </Link>
-                  </div>
-                </article>
+                        ? `最近一次${metric.lastFailureCategory ?? "平台"}问题：${metric.lastError}`
+                        : "当前还没有最近的平台错误或互动数据。"}
+                    </p>
+                    <div className="panel-link-row">
+                      <DetailLink to={buildDetailPath("platform", metric.platform, metric.failedJobs > 0)}>
+                      {metric.failedJobs > 0 ? "打开失败任务" : "打开平台详情"}
+                      </DetailLink>
+                    </div>
+                  </article>
               ))}
             </div>
           )}
@@ -714,14 +714,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         <article className="panel ops-jobs-panel">
           <header className="section-title">
             <div>
-              <p>Recent Jobs</p>
-              <h2>Latest publish activity</h2>
+              <p>最近任务</p>
+              <h2>最近的发布活动</h2>
             </div>
-            <span>{recentJobs.length} jobs</span>
+            <span>{recentJobs.length} 条任务</span>
           </header>
 
           {recentJobs.length === 0 ? (
-            <div className="empty-state">No publish jobs yet. Create a draft and schedule distribution to populate this feed.</div>
+            <EmptyState>当前还没有发布任务。先创建草稿并排程分发。</EmptyState>
           ) : (
             <div className="ops-article-list">
               {recentJobs.map((job) => (
@@ -729,21 +729,21 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   <div>
                     <strong>{formatPlatform(job.platform)}</strong>
                     <p>
-                      Article #{job.articleId} · {formatDateTime(job.updatedAt)}
+                      稿件 #{job.articleId} · {formatDateTime(job.updatedAt)}
                     </p>
                   </div>
                   <div className="ops-article-meta">
-                    <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
+                    <StatusPill status={job.status}>{formatPublishStatus(job.status)}</StatusPill>
                     <span>
                       {job.failureCategory
-                        ? `${job.failureCategory} · ${job.errorMessage ?? "provider failure"}`
+                        ? `${job.failureCategory} · ${job.errorMessage ?? "提供方失败"}`
                         : job.lastProviderStatus
-                          ? `${job.lastProviderStatus} · retries ${job.retries}`
-                          : job.errorMessage ?? `Retries: ${job.retries}`}
+                          ? `${job.lastProviderStatus} · 重试 ${job.retries} 次`
+                          : job.errorMessage ?? `已重试 ${job.retries} 次`}
                     </span>
-                    <Link className="detail-link detail-link-soft" to={buildDetailPath("platform", job.platform, job.status === "failed")}>
-                      Detail
-                    </Link>
+                    <DetailLink soft to={buildDetailPath("platform", job.platform, job.status === "failed")}>
+                      详情
+                    </DetailLink>
                   </div>
                 </article>
               ))}
@@ -754,14 +754,14 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
         <article className="panel ops-articles-panel">
           <header className="section-title">
             <div>
-              <p>Recent Drafts</p>
-              <h2>Latest digest updates</h2>
+              <p>最近草稿</p>
+              <h2>最近的稿件更新</h2>
             </div>
-            <span>{recentArticles.length} drafts</span>
+            <span>{recentArticles.length} 篇草稿</span>
           </header>
 
           {recentArticles.length === 0 ? (
-            <div className="empty-state">No article drafts yet. Generate a digest to start tracking draft health here.</div>
+            <EmptyState>当前还没有文章草稿。先生成一篇摘要稿件。</EmptyState>
           ) : (
             <div className="ops-article-list">
               {recentArticles.map((article) => (
@@ -769,12 +769,12 @@ export function OpsDashboardPage({ health, mode }: OpsDashboardPageProps): React
                   <div>
                     <strong>{article.title}</strong>
                     <p>
-                      {article.periodType.toUpperCase()} · {article.storyCount} stories · updated {formatDateTime(article.updatedAt)}
+                      {article.periodType.toUpperCase()} · {article.storyCount} 条 story · 更新于 {formatDateTime(article.updatedAt)}
                     </p>
                   </div>
                   <div className="ops-article-meta">
-                    <span className={`status-pill status-${article.status}`}>{formatArticleStatus(article.status)}</span>
-                    <span>{article.variantCount} variants</span>
+                    <StatusPill status={article.status}>{formatArticleStatus(article.status)}</StatusPill>
+                    <span>{article.variantCount} 个变体</span>
                   </div>
                 </article>
               ))}

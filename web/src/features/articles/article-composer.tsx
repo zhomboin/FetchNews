@@ -46,7 +46,7 @@ export function ArticleComposer({
       <section className="panel editorial-workbench-composer">
         <header className="section-title editorial-section-title">
           <div>
-            <p>Paragraph Composer</p>
+            <p>正文编排</p>
             <h2>段落编排</h2>
           </div>
         </header>
@@ -59,7 +59,7 @@ export function ArticleComposer({
     <section className="panel editorial-workbench-composer">
       <header className="section-title editorial-section-title">
         <div>
-          <p>Paragraph Composer</p>
+          <p>正文编排</p>
           <h2>段落编排</h2>
         </div>
         <span>{bodyBlocks.length} 个正文块</span>

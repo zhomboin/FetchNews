@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 import type { PostVariantRecord, PublishJobRecord } from "../../lib/api";
 import type { ArticleBlockRecord, ArticleRevisionRecord, ArticleWorkbenchRecord, EditorialActionRecord } from "../../lib/editorial-api";
@@ -167,7 +168,7 @@ export function ArticleHistoryPanel({
       <section className="panel editorial-workbench-history">
         <header className="section-title editorial-section-title">
           <div>
-            <p>History & Channels</p>
+            <p>历史与渠道</p>
             <h2>版本历史与渠道</h2>
           </div>
         </header>
@@ -183,7 +184,7 @@ export function ArticleHistoryPanel({
     <section className="panel editorial-workbench-history">
       <header className="section-title editorial-section-title">
         <div>
-          <p>History & Channels</p>
+          <p>历史与渠道</p>
           <h2>版本历史与渠道</h2>
         </div>
         <span>{revisions.length} 个版本</span>
@@ -217,9 +218,9 @@ export function ArticleHistoryPanel({
             </span>
           ))
         )}
-        <a className="detail-link" href={detailHref}>
+        <Link className="detail-link" to={detailHref}>
           打开历史明细页
-        </a>
+        </Link>
       </div>
 
       <div className="editorial-revision-list">

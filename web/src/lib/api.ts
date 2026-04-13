@@ -599,13 +599,13 @@ export type OpsSummaryRecord = {
  * Canonical section labels used across stories and digests.
  */
 export const SECTION_LABELS: Record<string, string> = {
-  model_release: "????",
-  open_source: "????",
-  research: "????",
-  agents: "Agent ???",
-  infrastructure: "????",
-  product_updates: "????",
-  community: "????",
+  model_release: "模型发布",
+  open_source: "开源生态",
+  research: "研究进展",
+  agents: "Agent 动向",
+  infrastructure: "基础设施",
+  product_updates: "产品更新",
+  community: "社区讨论",
 };
 
 /**

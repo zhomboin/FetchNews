@@ -1,7 +1,8 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
+import { DetailLink, EmptyState, StatusPill } from "../../components/console";
 import {
   ArticleDraftRecord,
   IngestRunRecord,
@@ -37,7 +38,7 @@ function isDetailKind(value: string | null): value is DetailKind {
 
 function formatDateTime(value: string | null): string {
   if (value === null) {
-    return "Running";
+    return "运行中";
   }
 
   return new Intl.DateTimeFormat("zh-CN", {
@@ -50,35 +51,48 @@ function formatDateTime(value: string | null): string {
 
 function formatPublishStatus(status: string): string {
   if (status === "scheduled") {
-    return "Scheduled";
+    return "待发布";
   }
   if (status === "published") {
-    return "Published";
+    return "已发布";
   }
   if (status === "failed") {
-    return "Failed";
+    return "失败";
   }
   return status;
 }
 
 function formatArticleStatus(status: string): string {
   if (status === "ready") {
-    return "Ready";
+    return "就绪";
   }
   if (status === "scheduled") {
-    return "Scheduled";
+    return "已排程";
   }
   if (status === "published") {
-    return "Published";
+    return "已发布";
   }
   if (status === "failed") {
-    return "Failed";
+    return "失败";
   }
-  return "Draft";
+  return "草稿";
 }
 
 function formatStoryStatus(status: StoryRecord["status"]): string {
-  return status === "approved" ? "Approved" : "Pending";
+  return status === "approved" ? "已审核" : "待审核";
+}
+
+function formatRunStatus(status: IngestRunRecord["status"]): string {
+  if (status === "running") {
+    return "运行中";
+  }
+  if (status === "completed") {
+    return "已完成";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  return status;
 }
 
 function formatPlatform(platform: string): string {
@@ -93,25 +107,25 @@ function formatPlatform(platform: string): string {
 
 function formatMomentumTier(momentumTier: string): string {
   if (momentumTier === "hot") {
-    return "Hot";
+    return "高热";
   }
   if (momentumTier === "rising") {
-    return "Rising";
+    return "上升";
   }
   if (momentumTier === "cooling") {
-    return "Cooling";
+    return "降温";
   }
-  return "Steady";
+  return "平稳";
 }
 
 function formatPeriodType(periodType: ArticleDraftRecord["periodType"]): string {
   if (periodType === "weekly") {
-    return "Weekly";
+    return "周报";
   }
   if (periodType === "monthly") {
-    return "Monthly";
+    return "月报";
   }
-  return "Daily";
+  return "日报";
 }
 
 function buildDetailPath(kind: DetailKind, target: string, failedOnly = false): string {
@@ -295,44 +309,44 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
 
   const headingTitle =
     detailKind === "section"
-      ? `${target ? formatSectionLabel(target) : "Section"} detail`
+      ? `${target ? formatSectionLabel(target) : "栏目"}详情`
       : detailKind === "platform"
-        ? `${target ? formatPlatform(target) : "Platform"} detail`
+        ? `${target ? formatPlatform(target) : "平台"}详情`
         : detailKind === "source"
-          ? `${target ?? "Source"} detail`
-          : "Ops detail";
+          ? `${target ?? "来源"}详情`
+          : "运营详情";
   const headingLead =
     detailKind === "section"
-      ? "Inspect the stories currently grouped into this editorial section, their review state, and the risk signals that affect inclusion in digests."
+      ? "查看当前被归入该栏目的 story、审核状态和风险信号，判断它们是否适合进入稿件链路。"
       : detailKind === "platform"
-        ? "Inspect publish jobs for a single platform, review recent failures, and see which digests are currently associated with that channel."
+        ? "查看单个平台的发布任务、最近失败原因以及当前关联的稿件，便于快速排查平台侧问题。"
         : detailKind === "source"
-          ? "Inspect governance posture, ingestion failures, and recent source runs before adjusting trust or re-triggering collection."
-          : "Choose a section, platform, or source from the operations dashboard to open its drill-down detail page.";
+          ? "在调整信任分或重新触发采集前，先检查来源治理状态、失败记录和最近运行情况。"
+          : "请先从运营总览中选择栏目、平台或来源，再打开对应的下钻详情页。";
 
   return (
     <div className="page-stack detail-page">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Ops Drill-down</p>
+          <p className="eyebrow">运营下钻</p>
           <h1>{headingTitle}</h1>
           <p className="lede">{headingLead}</p>
           <div className="detail-breadcrumb-row">
-            <Link className="detail-link" to={detailKind === "platform" ? "/publishing" : "/"}>
-              Back to ops
-            </Link>
-            <Link className="detail-link detail-link-soft" to={getWorkbenchLink(detailKind)}>
-              Open full workbench
-            </Link>
+            <DetailLink to={detailKind === "platform" ? "/publishing" : "/"}>
+              返回运营总览
+            </DetailLink>
+            <DetailLink soft to={getWorkbenchLink(detailKind)}>
+              打开对应工作台
+            </DetailLink>
             {detailKind === "platform" && target !== null ? (
-              <Link className="detail-link detail-link-soft" to={buildDetailPath("platform", target, !failedOnly)}>
-                {failedOnly ? "Show all jobs" : "Show failed only"}
-              </Link>
+              <DetailLink soft to={buildDetailPath("platform", target, !failedOnly)}>
+                {failedOnly ? "查看全部任务" : "仅看失败任务"}
+              </DetailLink>
             ) : null}
             {detailKind === "source" && target !== null ? (
-              <Link className="detail-link detail-link-soft" to={buildDetailPath("source", target, !failedOnly)}>
-                {failedOnly ? "Show all runs" : "Show failed only"}
-              </Link>
+              <DetailLink soft to={buildDetailPath("source", target, !failedOnly)}>
+                {failedOnly ? "查看全部运行" : "仅看失败运行"}
+              </DetailLink>
             ) : null}
           </div>
         </div>
@@ -343,48 +357,48 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
             <strong>{health}</strong>
           </div>
           <div className="meta-chip">
-            <span>Current target</span>
-            <strong>{target ?? "No target selected"}</strong>
+            <span>当前目标</span>
+            <strong>{target ?? "尚未选择目标"}</strong>
           </div>
         </div>
       </section>
 
       {!detailKind || target === null ? (
         <section className="panel">
-          <div className="empty-state">This detail page needs a section, platform, or source target from the ops dashboard.</div>
+          <EmptyState>这个详情页需要从运营总览中带入栏目、平台或来源目标。</EmptyState>
         </section>
       ) : null}
 
       {detailKind === "section" && target !== null ? (
         <>
-          <section className="stats-grid" aria-label="Section detail metrics">
+          <section className="stats-grid" aria-label="栏目详情指标">
             <article className="metric-cell">
-              <p>Stories</p>
+              <p>故事数</p>
               <strong>{sectionStories.length}</strong>
-              <span>Total stories currently mapped into this section.</span>
+              <span>当前归入该栏目的 story 总数。</span>
             </article>
             <article className="metric-cell">
-              <p>Approved</p>
+              <p>已审核</p>
               <strong>{sectionStories.filter((story) => story.status === "approved").length}</strong>
-              <span>Stories already approved for digest generation.</span>
+              <span>已经可以进入稿件生成链路的 story。</span>
             </article>
             <article className="metric-cell">
-              <p>Pending</p>
+              <p>待审核</p>
               <strong>{sectionStories.filter((story) => story.status !== "approved").length}</strong>
-              <span>Stories still waiting for editorial review.</span>
+              <span>仍等待人工审核的 story。</span>
             </article>
             <article className="metric-cell">
-              <p>Flagged</p>
+              <p>需复核</p>
               <strong>{sectionStories.filter((story) => story.riskFlags.length > 0).length}</strong>
-              <span>Stories carrying at least one risk flag.</span>
+              <span>至少带有一个风险标记的 story。</span>
             </article>
             <article className="metric-cell">
-              <p>Momentum</p>
+              <p>栏目势能</p>
               <strong>{formatMomentumTier(sectionMetric?.momentumTier ?? "steady")}</strong>
               <span>
                 {sectionMetric
-                  ? `${sectionMetric.engagementClicks} clicks from ${sectionMetric.engagementImpressions} impressions.`
-                  : "No post-publication engagement captured for this section yet."}
+                  ? `${sectionMetric.engagementImpressions} 次曝光带来 ${sectionMetric.engagementClicks} 次点击。`
+                  : "当前栏目还没有沉淀发布后的互动数据。"}
               </span>
             </article>
             <article className="metric-cell">
@@ -392,8 +406,8 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
               <strong>{sectionMetric ? `${Math.round(sectionMetric.clickThroughRate * 100)}%` : "--"}</strong>
               <span>
                 {sectionMetric
-                  ? `${sectionMetric.engagementInteractions} interactions and ${sectionMetric.engagementOpens} opens.`
-                  : "Awaiting publish feedback to compute section conversion."}
+                  ? `${sectionMetric.engagementInteractions} 次互动，${sectionMetric.engagementOpens} 次打开。`
+                  : "等待发布反馈后再计算栏目转化表现。"}
               </span>
             </article>
           </section>
@@ -401,16 +415,16 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
           <section className="panel detail-panel">
             <header className="section-title">
               <div>
-                <p>Section Stories</p>
+                <p>栏目故事</p>
                 <h2>{formatSectionLabel(target)}</h2>
               </div>
-              <span>{storiesQuery.isFetching ? "Refreshing" : "Live section slice"}</span>
+              <span>{storiesQuery.isFetching ? "刷新中" : "实时栏目切片"}</span>
             </header>
 
-            {isLoading ? <div className="empty-state">Loading section detail...</div> : null}
-            {isError ? <div className="empty-state">Section detail failed to load. Check the stories endpoint and try again.</div> : null}
+            {isLoading ? <EmptyState>正在加载栏目详情...</EmptyState> : null}
+            {isError ? <EmptyState>栏目详情加载失败，请检查 `stories` 接口后重试。</EmptyState> : null}
             {!isLoading && !isError && sectionStories.length === 0 ? (
-              <div className="empty-state">No stories currently match this section.</div>
+              <EmptyState>当前没有 story 命中该栏目。</EmptyState>
             ) : null}
 
             {!isLoading && !isError && sectionStories.length > 0 ? (
@@ -423,7 +437,7 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                         <h3>{story.clusterTitle}</h3>
                       </div>
                       <div className="detail-card-meta">
-                        <span className={`status-pill status-${story.status}`}>{formatStoryStatus(story.status)}</span>
+                        <StatusPill status={story.status}>{formatStoryStatus(story.status)}</StatusPill>
                         <strong>{story.score.toFixed(1)}</strong>
                       </div>
                     </div>
@@ -446,11 +460,11 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                     ) : null}
                     <div className="detail-inline-grid">
                       <div>
-                        <span>Items</span>
+                        <span>条目数</span>
                         <strong>{story.itemCount}</strong>
                       </div>
                       <div>
-                        <span>Window</span>
+                        <span>最近窗口</span>
                         <strong>{formatDateTime(story.lastSeenAt)}</strong>
                       </div>
                     </div>
@@ -466,9 +480,9 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                     {story.sourceLinks.length > 0 ? (
                       <div className="detail-chip-row">
                         {story.sourceLinks.slice(0, 3).map((link) => (
-                          <a key={link} className="detail-link detail-link-soft" href={link} target="_blank" rel="noreferrer">
-                            Source link
-                          </a>
+                          <DetailLink key={link} href={link} rel="noreferrer" soft target="_blank">
+                            来源链接
+                          </DetailLink>
                         ))}
                       </div>
                     ) : null}
@@ -482,43 +496,43 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
 
       {detailKind === "platform" && target !== null ? (
         <>
-          <section className="stats-grid" aria-label="Platform detail metrics">
+          <section className="stats-grid" aria-label="平台详情指标">
             <article className="metric-cell">
-              <p>Jobs</p>
+              <p>任务数</p>
               <strong>{platformJobs.length}</strong>
-              <span>Publish jobs currently visible for this platform.</span>
+              <span>当前平台筛选下可见的发布任务。</span>
             </article>
             <article className="metric-cell">
-              <p>Published</p>
+              <p>已发布</p>
               <strong>{platformJobs.filter((job) => job.status === "published").length}</strong>
-              <span>Jobs that reached a terminal published state.</span>
+              <span>已经进入终态并完成发布的任务。</span>
             </article>
             <article className="metric-cell">
-              <p>Clicks</p>
+              <p>点击</p>
               <strong>{platformEngagement.clicks}</strong>
-              <span>{platformEngagement.interactions} interactions from visible jobs.</span>
+              <span>当前可见任务累计 {platformEngagement.interactions} 次互动。</span>
             </article>
             <article className="metric-cell">
-              <p>Drafts</p>
+              <p>关联稿件</p>
               <strong>{platformArticles.length}</strong>
-              <span>{platformEngagement.impressions} impressions recorded for this platform.</span>
+              <span>当前平台累计记录 {platformEngagement.impressions} 次曝光。</span>
             </article>
           </section>
 
           <section className="ops-grid detail-grid">
             <article className="panel">
               <header className="section-title">
-                <div>
-                  <p>Platform Jobs</p>
-                  <h2>{formatPlatform(target)}</h2>
-                </div>
-                <span>{failedOnly ? "Failed only" : "All jobs"}</span>
-              </header>
+              <div>
+                <p>平台任务</p>
+                <h2>{formatPlatform(target)}</h2>
+              </div>
+              <span>{failedOnly ? "仅失败任务" : "全部任务"}</span>
+            </header>
 
-              {isLoading ? <div className="empty-state">Loading platform detail...</div> : null}
-              {isError ? <div className="empty-state">Platform detail failed to load. Check publish jobs and article endpoints.</div> : null}
+              {isLoading ? <EmptyState>正在加载平台详情...</EmptyState> : null}
+              {isError ? <EmptyState>平台详情加载失败，请检查发布任务和稿件接口。</EmptyState> : null}
               {!isLoading && !isError && platformJobs.length === 0 ? (
-                <div className="empty-state">No publish jobs match this platform filter yet.</div>
+                <EmptyState>当前还没有任务命中这个平台筛选条件。</EmptyState>
               ) : null}
 
               {!isLoading && !isError && platformJobs.length > 0 ? (
@@ -527,29 +541,29 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                     <article key={job.id} className="publish-job-row">
                       <div className="publish-job-copy">
                         <div>
-                          <strong>Article #{job.articleId}</strong>
+                          <strong>稿件 #{job.articleId}</strong>
                           <p>{formatDateTime(job.scheduledFor)}</p>
                         </div>
                         <div className="publish-job-meta">
-                          <span className={`status-pill status-${job.status}`}>{formatPublishStatus(job.status)}</span>
-                          <span>Retries {job.retries}</span>
+                          <StatusPill status={job.status}>{formatPublishStatus(job.status)}</StatusPill>
+                          <span>重试 {job.retries} 次</span>
                         </div>
                       </div>
                       <div className="publish-job-note-stack">
-                        <span className="publish-job-note">Updated {formatDateTime(job.updatedAt)}</span>
-                        {job.providerJobId ? <span className="publish-job-note">Provider job: {job.providerJobId}</span> : null}
-                        {job.dispatchKey ? <span className="publish-job-note">Dispatch key: {job.dispatchKey}</span> : null}
+                        <span className="publish-job-note">更新时间：{formatDateTime(job.updatedAt)}</span>
+                        {job.providerJobId ? <span className="publish-job-note">提供方任务：{job.providerJobId}</span> : null}
+                        {job.dispatchKey ? <span className="publish-job-note">分发键：{job.dispatchKey}</span> : null}
                         {job.lastProviderStatus ? (
-                          <span className="publish-job-note">Provider status: {job.lastProviderStatus}</span>
+                          <span className="publish-job-note">提供方状态：{job.lastProviderStatus}</span>
                         ) : null}
-                        {job.externalId ? <span className="publish-job-note">External id: {job.externalId}</span> : null}
+                        {job.externalId ? <span className="publish-job-note">外部 ID：{job.externalId}</span> : null}
                         {job.metricsRecordedAt ? (
                           <span className="publish-job-note">
-                            Metrics: {job.performanceMetrics.impressions ?? 0} impressions · {job.performanceMetrics.clicks ?? 0} clicks · {job.performanceMetrics.interactions ?? 0} interactions
+                            指标：{job.performanceMetrics.impressions ?? 0} 次曝光 · {job.performanceMetrics.clicks ?? 0} 次点击 · {job.performanceMetrics.interactions ?? 0} 次互动
                           </span>
                         ) : null}
                         {job.failureCategory ? (
-                          <span className="publish-job-note">Failure category: {job.failureCategory}</span>
+                          <span className="publish-job-note">失败分类：{job.failureCategory}</span>
                         ) : null}
                         {job.errorMessage ? <span className="publish-job-error">{job.errorMessage}</span> : null}
                       </div>
@@ -561,16 +575,16 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
 
             <article className="panel">
               <header className="section-title">
-                <div>
-                  <p>Related Drafts</p>
-                  <h2>Drafts routed to {formatPlatform(target)}</h2>
+              <div>
+                  <p>关联稿件</p>
+                  <h2>{formatPlatform(target)} 的关联稿件</h2>
                 </div>
-                <span>{platformArticles.length} drafts</span>
+                <span>{platformArticles.length} 篇稿件</span>
               </header>
 
-              {isLoading ? <div className="empty-state">Loading related drafts...</div> : null}
+              {isLoading ? <EmptyState>正在加载关联稿件...</EmptyState> : null}
               {!isLoading && !isError && platformArticles.length === 0 ? (
-                <div className="empty-state">No drafts are currently associated with the selected platform filter.</div>
+                <EmptyState>当前没有稿件与这个平台筛选条件关联。</EmptyState>
               ) : null}
 
               {!isLoading && !isError && platformArticles.length > 0 ? (
@@ -582,12 +596,12 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                         <div>
                           <strong>{article.title}</strong>
                           <p>
-                            {formatPeriodType(article.periodType)} · {article.storyCount} stories · updated {formatDateTime(article.updatedAt)}
+                            {formatPeriodType(article.periodType)} · {article.storyCount} 条 story · 更新于 {formatDateTime(article.updatedAt)}
                           </p>
                         </div>
                         <div className="ops-article-meta">
-                          <span className={`status-pill status-${article.status}`}>{formatArticleStatus(article.status)}</span>
-                          <span>{matchingJobs.length} matching jobs</span>
+                          <StatusPill status={article.status}>{formatArticleStatus(article.status)}</StatusPill>
+                          <span>{matchingJobs.length} 条关联任务</span>
                         </div>
                       </article>
                     );
@@ -601,53 +615,53 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
 
       {detailKind === "source" && target !== null ? (
         <>
-          <section className="stats-grid" aria-label="Source detail metrics">
+          <section className="stats-grid" aria-label="来源详情指标">
             <article className="metric-cell">
-              <p>Runs</p>
+              <p>运行批次</p>
               <strong>{sourceRuns.length}</strong>
-              <span>Recent runs where this source was included.</span>
+              <span>最近包含该来源的采集批次。</span>
             </article>
             <article className="metric-cell">
-              <p>Failures</p>
+              <p>失败记录</p>
               <strong>{sourceFailureRows.length}</strong>
-              <span>Error rows recorded for this source across visible runs.</span>
+              <span>当前可见运行中记录到的来源错误条数。</span>
             </article>
             <article className="metric-cell">
-              <p>Trust</p>
+              <p>信任分</p>
               <strong>{sourceSpec?.effectiveTrustScore?.toFixed(1) ?? "--"}</strong>
-              <span>Effective trust score after governance feedback.</span>
+              <span>治理反馈作用后的有效信任分。</span>
             </article>
             <article className="metric-cell">
-              <p>Ranking</p>
+              <p>排序倍率</p>
               <strong>{sourceSpec?.effectiveScoreMultiplier?.toFixed(2) ?? "--"}x</strong>
-              <span>Effective ranking multiplier used by story scoring.</span>
+              <span>story 排序阶段实际使用的倍率。</span>
             </article>
             <article className="metric-cell">
               <p>Cursor</p>
               <strong>{sourceSpec?.incrementalCursor ?? "--"}</strong>
-              <span>Most recent incremental cursor persisted for this source.</span>
+              <span>该来源最近一次持久化的增量游标。</span>
             </article>
             <article className="metric-cell">
-              <p>Last success</p>
+              <p>最近成功</p>
               <strong>{sourceSpec?.lastSuccessAt ? formatDateTime(sourceSpec.lastSuccessAt) : "--"}</strong>
-              <span>Last successful ingest writeback recorded for this source.</span>
+              <span>该来源最近一次成功写回采集结果的时间。</span>
             </article>
           </section>
 
           <section className="ops-grid detail-grid">
             <article className="panel">
               <header className="section-title">
-                <div>
-                  <p>Source Governance</p>
-                  <h2>{sourceSpec?.label ?? target}</h2>
-                </div>
-                <span>{sourceSpec?.priority ?? "Unknown priority"}</span>
-              </header>
+              <div>
+                <p>来源治理</p>
+                <h2>{sourceSpec?.label ?? target}</h2>
+              </div>
+              <span>{sourceSpec?.priority ?? "未知优先级"}</span>
+            </header>
 
-              {isLoading ? <div className="empty-state">Loading source detail...</div> : null}
-              {isError ? <div className="empty-state">Source detail failed to load. Check source catalog and ingest runs.</div> : null}
+              {isLoading ? <EmptyState>正在加载来源详情...</EmptyState> : null}
+              {isError ? <EmptyState>来源详情加载失败，请检查来源目录和采集运行接口。</EmptyState> : null}
               {!isLoading && !isError && sourceSpec === null ? (
-                <div className="empty-state">No source catalog entry matches this slug.</div>
+                <EmptyState>来源目录里没有与该 slug 匹配的条目。</EmptyState>
               ) : null}
 
               {!isLoading && !isError && sourceSpec !== null ? (
@@ -661,29 +675,29 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                   </div>
                   <div className="platform-metric-grid compact-gap">
                     <div>
-                      <span>Base trust</span>
+                      <span>基础信任分</span>
                       <strong>{readConfigNumber(sourceSpec, "trust_score")?.toFixed(1) ?? "--"}</strong>
                     </div>
                     <div>
-                      <span>Effective trust</span>
+                      <span>有效信任分</span>
                       <strong>{sourceSpec.effectiveTrustScore?.toFixed(1) ?? "--"}</strong>
                     </div>
                     <div>
-                      <span>Base ranking</span>
+                      <span>基础倍率</span>
                       <strong>{readConfigNumber(sourceSpec, "score_multiplier")?.toFixed(2) ?? "--"}x</strong>
                     </div>
                     <div>
-                      <span>Effective ranking</span>
+                      <span>有效倍率</span>
                       <strong>{sourceSpec.effectiveScoreMultiplier?.toFixed(2) ?? "--"}x</strong>
                     </div>
                   </div>
                   <p className="source-governance-note">
-                    Failures {sourceSpec.feedbackSignals.failed_ingest_runs ?? 0} · Pending {sourceSpec.feedbackSignals.pending_stories ?? 0} · Flagged {sourceSpec.feedbackSignals.flagged_stories ?? 0}
+                    失败 {sourceSpec.feedbackSignals.failed_ingest_runs ?? 0} · 待审核 {sourceSpec.feedbackSignals.pending_stories ?? 0} · 需复核 {sourceSpec.feedbackSignals.flagged_stories ?? 0}
                   </p>
                   {sourceSpec.incrementalCursor || sourceSpec.lastSuccessAt ? (
                     <p className="source-governance-note">
-                      {sourceSpec.incrementalCursor ? `Cursor ${sourceSpec.incrementalCursor}` : "Cursor --"} ·{" "}
-                      {sourceSpec.lastSuccessAt ? `Last success ${formatDateTime(sourceSpec.lastSuccessAt)}` : "Last success --"}
+                      {sourceSpec.incrementalCursor ? `游标 ${sourceSpec.incrementalCursor}` : "游标 --"} ·{" "}
+                      {sourceSpec.lastSuccessAt ? `最近成功 ${formatDateTime(sourceSpec.lastSuccessAt)}` : "最近成功 --"}
                     </p>
                   ) : null}
                   {sourceSpec.governanceFlags.length > 0 ? (
@@ -701,16 +715,16 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
 
             <article className="panel">
               <header className="section-title">
-                <div>
-                  <p>Run History</p>
-                  <h2>{failedOnly ? "Failed runs" : "Recent runs"}</h2>
+              <div>
+                  <p>运行历史</p>
+                  <h2>{failedOnly ? "失败运行" : "最近运行"}</h2>
                 </div>
-                <span>{sourceRuns.length} runs</span>
+                <span>{sourceRuns.length} 次运行</span>
               </header>
 
-              {isLoading ? <div className="empty-state">Loading source runs...</div> : null}
+              {isLoading ? <EmptyState>正在加载来源运行记录...</EmptyState> : null}
               {!isLoading && !isError && sourceRuns.length === 0 ? (
-                <div className="empty-state">No runs match the selected source filter.</div>
+                <EmptyState>当前没有运行记录命中该来源筛选条件。</EmptyState>
               ) : null}
 
               {!isLoading && !isError && sourceRuns.length > 0 ? (
@@ -721,8 +735,8 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                       <article key={run.id} className="ingest-run-row">
                         <div className="run-main">
                           <div className="run-head">
-                            <h3>Run #{run.id}</h3>
-                            <span className={`status-pill status-${run.status}`}>{run.status}</span>
+                            <h3>采集批次 #{run.id}</h3>
+                            <StatusPill status={run.status}>{formatRunStatus(run.status)}</StatusPill>
                           </div>
                           <div className="source-chip-list">
                             {run.sourceSlugs.map((slug) => (
@@ -738,24 +752,24 @@ export function OpsDetailPage({ health }: OpsDetailPageProps): React.JSX.Element
                               ))}
                             </div>
                           ) : (
-                            <p className="run-note">This run completed without a source-specific error for the current slug.</p>
+                            <p className="run-note">该批次没有记录到当前来源的专属错误。</p>
                           )}
                         </div>
                         <div className="run-metrics">
                           <div>
-                            <span>Status</span>
-                            <strong>{run.status}</strong>
+                            <span>状态</span>
+                            <strong>{formatRunStatus(run.status)}</strong>
                           </div>
                           <div>
-                            <span>Items</span>
+                            <span>条目</span>
                             <strong>{run.itemsIngested}</strong>
                           </div>
                           <div>
-                            <span>Started</span>
+                            <span>开始时间</span>
                             <strong>{formatDateTime(run.startedAt)}</strong>
                           </div>
                           <div>
-                            <span>Finished</span>
+                            <span>结束时间</span>
                             <strong>{formatDateTime(run.finishedAt)}</strong>
                           </div>
                         </div>
